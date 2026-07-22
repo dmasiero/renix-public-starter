@@ -1,0 +1,9 @@
+.env
+result
+result-*
+.direnv/
+.DS_Store
+__pycache__/
+*.py[cod]
+*.qcow2
+*.iso

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "-s" ]]; then
+  printf '%s\n' "${RENIX_HOST:-demo}"
+else
+  /root/.nix-profile/bin/hostname "$@"
+fi

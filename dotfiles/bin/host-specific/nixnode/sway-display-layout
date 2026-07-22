@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+internal='eDP-1'
+
+# 32C Location
+lg='LG Electronics LG ULTRAGEAR+ 503NTPC2N592'
+# 165 Hz plus the internal 2880x1800@120 panel exceeds the display pipeline
+# budget on nixnode and leaves eDP-1 DPMS-off.  Use 100 Hz when both are on.
+lg_mode='5120x2160@100.035Hz'
+lg_scale='1.5'
+lg_edp_x='747'
+lg_edp_y='1440'
+
+# 10B Location
+samsung='Samsung Electric Company LS32D80xU HCNXC00034'
+samsung_mode='3840x2160@59.997Hz'
+samsung_scale='1.5'
+samsung_edp_x='320'
+samsung_edp_y='1440'
+
+# Portable stacked display
+sotsu='JMI SOTSU ELITE16 P05162024'
+sotsu_mode='3840x2400@59.999Hz'
+sotsu_scale='2'
+sotsu_edp_x='0'
+sotsu_edp_y='1200'
+
+if [ "${1:-}" = "--watch" ]; then
+  lock_file="${XDG_RUNTIME_DIR:-/tmp}/sway-display-layout.lock"
+  exec 9>"$lock_file"
+  flock -n 9 || exit 0
+fi
+
+connected_desc() {
+  local outputs=$1 make=$2 model=$3 serial=$4
+  jq -e --arg make "$make" --arg model "$model" --arg serial "$serial" \
+    'any(.[]; .active and .make == $make and (.model | startswith($model)) and .serial == $serial)' \
+    >/dev/null <<<"$outputs"
+}
+
+output_state_matches() {
+  local outputs=$1 make=$2 model=$3 serial=$4 width=$5 height=$6 refresh=$7 scale=$8 x=$9 y=${10}
+  jq -e \
+    --arg make "$make" --arg model "$model" --arg serial "$serial" \
+    --argjson width "$width" --argjson height "$height" --argjson refresh "$refresh" \
+    --argjson scale "$scale" --argjson x "$x" --argjson y "$y" \
+    'any(.[]; .active and .make == $make and (.model | startswith($model)) and .serial == $serial
+      and .current_mode.width == $width and .current_mode.height == $height and .current_mode.refresh == $refresh
+      and .scale == $scale and .rect.x == $x and .rect.y == $y)' \
+    >/dev/null <<<"$outputs"
+}
+
+internal_state_matches() {
+  local outputs=$1 x=$2 y=$3
+  jq -e --arg name "$internal" --argjson x "$x" --argjson y "$y" \
+    'any(.[]; .active and .name == $name
+      and .current_mode.width == 2880 and .current_mode.height == 1800 and .current_mode.refresh == 120000
+      and .scale == 1.5 and .rect.x == $x and .rect.y == $y)' \
+    >/dev/null <<<"$outputs"
+}
+
+internal_active() {
+  local outputs=$1
+  jq -e --arg name "$internal" 'any(.[]; .active and .name == $name)' >/dev/null <<<"$outputs"
+}
+
+set_default_sink() {
+  local sink current
+  for sink in "$@"; do
+    if pactl list sinks short 2>/dev/null | awk '{ print $2 }' | grep -Fxq "$sink"; then
+      current=$(pactl get-default-sink 2>/dev/null || true)
+      if [ "$current" != "$sink" ]; then
+        pactl set-default-sink "$sink" >/dev/null 2>&1 || true
+      fi
+      return 0
+    fi
+  done
+}
+
+apply_layout() {
+  local preserve_disabled=${1:-} outputs manage_internal=1
+  outputs=$(swaymsg -t get_outputs 2>/dev/null)
+
+  if [ "$preserve_disabled" = "--preserve-internal-disabled" ] && ! internal_active "$outputs"; then
+    manage_internal=0
+  fi
+
+  if connected_desc "$outputs" 'JMI' 'SOTSU ELITE16' 'P05162024'; then
+    if output_state_matches "$outputs" 'JMI' 'SOTSU ELITE16' 'P05162024' 3840 2400 59999 "$sotsu_scale" 0 0 && \
+      { [ "$manage_internal" -eq 0 ] || internal_state_matches "$outputs" "$sotsu_edp_x" "$sotsu_edp_y"; }; then
+      return 0
+    fi
+    cmd="output \"$sotsu\" enable mode $sotsu_mode scale $sotsu_scale position 0 0"
+    if [ "$manage_internal" -eq 1 ]; then
+      cmd="$cmd; output $internal enable mode 2880x1800@120Hz scale 1.5 position $sotsu_edp_x $sotsu_edp_y"
+    fi
+    swaymsg "$cmd" >/dev/null
+  elif connected_desc "$outputs" 'Samsung Electric Company' 'LS32D80xU' 'HCNXC00034'; then
+    set_default_sink \
+      'alsa_output.pci-0000_00_1f.3-platform-sof_sdw.HiFi__HDMI1__sink' \
+      'alsa_output.pci-0000_00_1f.3-platform-sof_sdw.pro-output-5'
+    if output_state_matches "$outputs" 'Samsung Electric Company' 'LS32D80xU' 'HCNXC00034' 3840 2160 59997 "$samsung_scale" 0 0 && \
+      { [ "$manage_internal" -eq 0 ] || internal_state_matches "$outputs" "$samsung_edp_x" "$samsung_edp_y"; }; then
+      return 0
+    fi
+    cmd="output \"$samsung\" enable mode $samsung_mode scale $samsung_scale position 0 0"
+    if [ "$manage_internal" -eq 1 ]; then
+      cmd="$cmd; output $internal enable mode 2880x1800@120Hz scale 1.5 position $samsung_edp_x $samsung_edp_y"
+    fi
+    swaymsg "$cmd" >/dev/null
+  elif connected_desc "$outputs" 'LG Electronics' 'LG ULTRAGEAR+' '503NTPC2N592'; then
+    if output_state_matches "$outputs" 'LG Electronics' 'LG ULTRAGEAR+' '503NTPC2N592' 5120 2160 100035 "$lg_scale" 0 0 && \
+      { [ "$manage_internal" -eq 0 ] || internal_state_matches "$outputs" "$lg_edp_x" "$lg_edp_y"; }; then
+      return 0
+    fi
+    cmd="output \"$lg\" enable mode $lg_mode scale $lg_scale position 0 0"
+    if [ "$manage_internal" -eq 1 ]; then
+      cmd="$cmd; output $internal enable mode 2880x1800@120Hz scale 1.5 position $lg_edp_x $lg_edp_y"
+    fi
+    swaymsg "$cmd" >/dev/null
+  else
+    set_default_sink \
+      'alsa_output.pci-0000_00_1f.3-platform-sof_sdw.HiFi__Speaker__sink' \
+      'alsa_output.pci-0000_00_1f.3-platform-sof_sdw.pro-output-0'
+    if [ "$manage_internal" -eq 0 ] || internal_state_matches "$outputs" 0 0; then
+      return 0
+    fi
+    swaymsg "output $internal enable mode 2880x1800@120Hz scale 1.5 position 0 0" >/dev/null
+  fi
+}
+
+apply_layout
+
+if [ "${1:-}" = "--watch" ]; then
+  swaymsg -m -t subscribe '["output"]' 2>/dev/null |
+    while read -r _event; do
+      apply_layout --preserve-internal-disabled || true
+    done
+fi

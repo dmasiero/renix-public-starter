@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+battery="$(find /sys/class/power_supply -mindepth 1 -maxdepth 1 \( -type l -o -type d \) | grep '/BAT' | head -n1 || true)"
+if [ -z "$battery" ] || [ ! -r "$battery/capacity" ]; then
+  exit 0
+fi
+
+capacity="$(<"$battery/capacity")"
+status="$(<"$battery/status")"
+
+case "$capacity" in
+  ""|*[!0-9]*) exit 0 ;;
+esac
+
+state_dir="${XDG_RUNTIME_DIR:-/tmp}/battery-warning"
+mkdir -p "$state_dir"
+
+case "$status" in
+  Discharging) ;;
+  *)
+    rm -f "$state_dir"/warned-*
+    exit 0
+    ;;
+esac
+
+if [ "$capacity" -gt 25 ]; then
+  rm -f "$state_dir"/warned-*
+  exit 0
+fi
+
+threshold=""
+if [ "$capacity" -le 5 ]; then
+  threshold=5
+elif [ "$capacity" -le 10 ]; then
+  threshold=10
+elif [ "$capacity" -le 20 ]; then
+  threshold=20
+fi
+
+[ -n "$threshold" ] || exit 0
+
+warned_file="$state_dir/warned-$threshold"
+[ ! -e "$warned_file" ] || exit 0
+: > "$warned_file"
+
+urgency=normal
+timeout=10000
+icon=battery-caution
+if [ "$threshold" -le 10 ]; then
+  urgency=critical
+  timeout=0
+  icon=battery-empty
+fi
+
+notify-send \
+  -a battery-warning \
+  -u "$urgency" \
+  -i "$icon" \
+  -t "$timeout" \
+  "Battery low" \
+  "Battery is at ${capacity}% (${status}). Plug in soon."

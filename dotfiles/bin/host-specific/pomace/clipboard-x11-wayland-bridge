@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Bridge Xwayland's CLIPBOARD selection (used by tart-guest-agent's Go
+# clipboard dependency) with Sway/Wayland's clipboard.
+#
+# tart/macOS <-> tart-guest-agent <-> X11 clipboard <-> this bridge <-> Wayland
+
+export DISPLAY="${DISPLAY:-:0}"
+
+read_x() {
+  timeout 1 xclip -selection clipboard -out 2>/dev/null || true
+}
+
+read_wl() {
+  timeout 1 wl-paste --no-newline 2>/dev/null || true
+}
+
+write_x() {
+  printf %s "$1" | xclip -selection clipboard -in
+}
+
+write_wl() {
+  printf %s "$1" | wl-copy --type text/plain
+}
+
+last_x="$(read_x)"
+last_wl="$(read_wl)"
+
+# Prefer the Tart/macOS side at startup if it already provided text.
+if [[ -n "$last_x" && "$last_x" != "$last_wl" ]]; then
+  write_wl "$last_x"
+  last_wl="$last_x"
+fi
+
+while true; do
+  x="$(read_x)"
+  wl="$(read_wl)"
+
+  if [[ -n "$x" && "$x" != "$last_x" && "$x" != "$last_wl" ]]; then
+    write_wl "$x"
+    last_x="$x"
+    last_wl="$x"
+  elif [[ -n "$wl" && "$wl" != "$last_wl" && "$wl" != "$last_x" ]]; then
+    write_x "$wl"
+    last_x="$wl"
+    last_wl="$wl"
+  else
+    last_x="$x"
+    last_wl="$wl"
+  fi
+
+  sleep 0.5
+done

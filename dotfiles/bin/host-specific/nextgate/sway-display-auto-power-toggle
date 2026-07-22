@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="${XDG_RUNTIME_DIR:-/tmp}/sway-display-auto-power"
+state_file="$state_dir/disabled"
+mkdir -p "$state_dir"
+
+if [ -e "$state_file" ]; then
+  rm -f "$state_file"
+  "$DOTFILES/bin/sway-idle-lock-manager" >/dev/null 2>&1 &
+  exec notify-send -a sway "Display auto power" "Enabled (idle display sleep/lock manager restarted)"
+else
+  : > "$state_file"
+  pkill -xu "$USER" -f "$DOTFILES/bin/sway-idle-lock-manager" 2>/dev/null || true
+  swaymsg "output * power on" >/dev/null 2>&1 || true
+  exec notify-send -a sway "Display auto power" "Disabled"
+fi

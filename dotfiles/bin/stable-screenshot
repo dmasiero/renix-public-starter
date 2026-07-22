@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+screenshots_dir="${HOME}/screenshots"
+mkdir -p "$screenshots_dir"
+outfile="${screenshots_dir}/screenshot-$(date +%Y%m%d-%H%M%S).png"
+
+open_yazi_for_screenshot() {
+  command -v wezterm >/dev/null 2>&1 || return 0
+  command -v yazi >/dev/null 2>&1 || return 0
+
+  # Use the normal yazi config so openers like nomacs keep their normal config.
+  # Then target just this yazi instance and switch it to newest-first mtime sort.
+  local client_id
+  client_id="$(date +%s%N)"
+
+  wezterm start -- yazi --client-id "$client_id" "$outfile" >/dev/null 2>&1 &
+
+  if command -v ya >/dev/null 2>&1; then
+    (
+      sleep 0.2
+      ya emit-to "$client_id" sort mtime --reverse=yes >/dev/null 2>&1 \
+        || ya emit-to "$client_id" sort mtime --reverse >/dev/null 2>&1 \
+        || true
+    ) &
+  fi
+}
+
+copy_notify_and_open() {
+  [ -s "$outfile" ] || return 0
+
+  if command -v wl-copy >/dev/null 2>&1; then
+    wl-copy < "$outfile" || true
+  fi
+
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send "Screenshot saved" "$outfile" || true
+  fi
+
+  open_yazi_for_screenshot
+}
+
+if command -v grim >/dev/null 2>&1 && command -v slurp >/dev/null 2>&1 && [ -n "${SWAYSOCK:-}" ]; then
+  geometry="$(slurp)" || exit 0
+  [ -n "$geometry" ] || exit 0
+  grim -g "$geometry" "$outfile"
+  copy_notify_and_open
+  exit 0
+fi
+
+# X11 fallback.
+flameshot gui || exit 0
+if command -v wezterm >/dev/null 2>&1 && command -v yazi >/dev/null 2>&1; then
+  wezterm start -- yazi "$screenshots_dir" >/dev/null 2>&1 &
+fi

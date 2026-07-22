@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="/etc/profiles/per-user/${USER:-doug}/bin:/run/current-system/sw/bin:${PATH}"
+
+mode="${1:-next}"
+wallpaper_dir="${DOTFILES}/wallpapers"
+state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}"
+state_file="${state_dir}/wallpaper-rotate-current"
+sway_config_file="${state_dir}/sway-wallpaper.conf"
+solid_black="__solid_black__"
+mkdir -p "$state_dir"
+
+mapfile -d '' wallpapers < <(
+  find "$wallpaper_dir" -maxdepth 1 -type f \
+    \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' -o -iname '*.bmp' -o -iname '*.ppm' \) \
+    -print0 | sort -z
+)
+wallpapers+=("$solid_black")
+
+wallpaper_label() {
+  if [ "$1" = "$solid_black" ]; then
+    printf 'Solid black'
+  else
+    printf '%s' "$(basename "$1")"
+  fi
+}
+
+apply_wallpaper() {
+  local wallpaper="$1"
+
+  if [ -n "${SWAYSOCK:-}" ] && command -v swaymsg >/dev/null 2>&1; then
+    if [ "$wallpaper" = "$solid_black" ]; then
+      printf 'output * bg #000000 solid_color\n' > "$sway_config_file"
+      swaymsg output '*' bg '#000000' solid_color >/dev/null
+      return 0
+    fi
+
+    local escaped_wallpaper
+    escaped_wallpaper="$(printf '%s' "$wallpaper" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+
+    printf 'output * bg "%s" fill\n' "$escaped_wallpaper" > "$sway_config_file"
+    swaymsg output '*' bg "$wallpaper" fill >/dev/null
+  else
+    if [ "$wallpaper" = "$solid_black" ]; then
+      xsetroot -solid black
+    else
+      feh --no-xinerama --bg-fill "$wallpaper"
+    fi
+  fi
+}
+
+commit_wallpaper() {
+  local wallpaper="$1"
+  printf '%s' "$wallpaper" > "$state_file"
+  apply_wallpaper "$wallpaper"
+}
+
+notify_wallpaper() {
+  notify-send "Wallpaper" "$(wallpaper_label "$1")" 2>/dev/null || true
+}
+
+wallpaper_for_selection() {
+  local selection="$1"
+  local wallpaper
+  if declare -p ordered_wallpapers >/dev/null 2>&1; then
+    for wallpaper in "${ordered_wallpapers[@]}"; do
+      if [ "$(wallpaper_label "$wallpaper")" = "$selection" ]; then
+        printf '%s' "$wallpaper"
+        return 0
+      fi
+    done
+  else
+    for wallpaper in "${wallpapers[@]}"; do
+      if [ "$(wallpaper_label "$wallpaper")" = "$selection" ]; then
+        printf '%s' "$wallpaper"
+        return 0
+      fi
+    done
+  fi
+  return 1
+}
+
+select_wallpaper() {
+  if ! command -v rofi >/dev/null 2>&1; then
+    notify-send "Wallpaper" "rofi not found" 2>/dev/null || true
+    exit 1
+  fi
+
+  local original=""
+  if [ -f "$state_file" ]; then
+    original="$(<"$state_file")"
+  fi
+
+  local previewed=0
+  local ordered_wallpapers=()
+  local wallpaper
+  if [ "$original" = "$solid_black" ] || [ -f "$original" ]; then
+    ordered_wallpapers+=("$original")
+  fi
+  for wallpaper in "${wallpapers[@]}"; do
+    if [ "$wallpaper" != "$original" ]; then
+      ordered_wallpapers+=("$wallpaper")
+    fi
+  done
+
+  local options
+  options="$(for wallpaper in "${ordered_wallpapers[@]}"; do printf '%s\n' "$(wallpaper_label "$wallpaper")"; done)"
+
+  while true; do
+    local selection status wallpaper
+    set +e
+    selection="$(printf '%s' "$options" | rofi -dmenu -i -p 'Wallpaper' \
+      -mesg 'Enter: commit • Space: preview • j/k: navigate • Esc: cancel' \
+      -kb-row-down 'Down,Control+n,j' \
+      -kb-row-up 'Up,Control+p,k' \
+      -kb-custom-1 'space')"
+    status=$?
+    set -e
+
+    if [ "$status" -eq 0 ]; then
+      [ -n "$selection" ] || continue
+      wallpaper="$(wallpaper_for_selection "$selection")" || continue
+      commit_wallpaper "$wallpaper"
+      exit 0
+    elif [ "$status" -eq 10 ]; then
+      [ -n "$selection" ] || continue
+      wallpaper="$(wallpaper_for_selection "$selection")" || continue
+      apply_wallpaper "$wallpaper"
+      previewed=1
+    else
+      if [ "$previewed" -eq 1 ] && { [ "$original" = "$solid_black" ] || [ -f "$original" ]; }; then
+        apply_wallpaper "$original"
+      fi
+      exit 0
+    fi
+  done
+}
+
+current=""
+if [ -f "$state_file" ]; then
+  current="$(<"$state_file")"
+fi
+
+current_index=-1
+for i in "${!wallpapers[@]}"; do
+  if [ "${wallpapers[$i]}" = "$current" ]; then
+    current_index="$i"
+    break
+  fi
+done
+
+case "$mode" in
+  --restore|restore)
+    if [ "$current_index" -ge 0 ]; then
+      wallpaper="$current"
+    else
+      wallpaper="${wallpapers[0]}"
+      printf '%s' "$wallpaper" > "$state_file"
+    fi
+    apply_wallpaper "$wallpaper"
+    ;;
+  next|--next)
+    if [ "$current_index" -ge 0 ]; then
+      next_index=$(( (current_index + 1) % ${#wallpapers[@]} ))
+    else
+      next_index=0
+    fi
+    wallpaper="${wallpapers[$next_index]}"
+    commit_wallpaper "$wallpaper"
+    notify_wallpaper "$wallpaper"
+    ;;
+  select|--select)
+    select_wallpaper
+    ;;
+  *)
+    echo "Usage: $(basename "$0") [next|--next|select|--select|restore|--restore]" >&2
+    exit 2
+    ;;
+esac

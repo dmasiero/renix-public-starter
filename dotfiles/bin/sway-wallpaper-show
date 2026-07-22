@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="${XDG_RUNTIME_DIR:-/tmp}/sway-wallpaper-show"
+state_file="$state_dir/state.json"
+mkdir -p "$state_dir"
+
+escape_sway() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+outputs_json="$(swaymsg -t get_outputs)"
+focused_output="$(swaymsg -t get_workspaces | jq -r '.[] | select(.focused) | .output' | head -n1)"
+
+mapfile -t active_outputs < <(
+  printf '%s\n' "$outputs_json" | jq -r '
+    [ .[]
+      | select(.active and .current_workspace != null)
+      | { name: .name, x: .rect.x }
+    ]
+    | sort_by(.x)
+    | .[].name
+  '
+)
+
+if [ "${#active_outputs[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+preferred_outputs=(HDMI-0 DP-2 DP-0 DP-4.8)
+ordered_outputs=()
+
+for preferred in "${preferred_outputs[@]}"; do
+  for output in "${active_outputs[@]}"; do
+    if [ "$output" = "$preferred" ]; then
+      ordered_outputs+=("$output")
+      break
+    fi
+  done
+done
+
+for output in "${active_outputs[@]}"; do
+  seen=0
+  for ordered in "${ordered_outputs[@]}"; do
+    if [ "$ordered" = "$output" ]; then
+      seen=1
+      break
+    fi
+  done
+  if [ "$seen" -eq 0 ]; then
+    ordered_outputs+=("$output")
+  fi
+done
+
+all_wallpaper=1
+while IFS=$'\t' read -r output workspace; do
+  [ -n "$output" ] || continue
+  if [ "$workspace" != "wallpaper-$output" ]; then
+    all_wallpaper=0
+    break
+  fi
+done < <(printf '%s\n' "$outputs_json" | jq -r '.[] | select(.active and .current_workspace != null) | [.name, .current_workspace] | @tsv')
+
+if [ "$all_wallpaper" -eq 1 ] && [ -s "$state_file" ]; then
+  commands=""
+  focus_workspace=""
+  while IFS=$'\t' read -r output workspace; do
+    [ -n "$output" ] || continue
+    [ -n "$workspace" ] || continue
+    output_escaped="$(escape_sway "$output")"
+    workspace_escaped="$(escape_sway "$workspace")"
+    commands+="focus output \"$output_escaped\"; workspace \"$workspace_escaped\"; move workspace to output \"$output_escaped\"; workspace \"$workspace_escaped\"; "
+
+    if [ -n "$focused_output" ] && [ "$output" = "$focused_output" ]; then
+      focus_workspace="$workspace"
+    fi
+  done < <(jq -r '.[] | [.output, .workspace] | @tsv' "$state_file")
+
+  rm -f "$state_file"
+else
+  printf '%s\n' "$outputs_json" | jq '[ .[] | select(.active and .current_workspace != null) | { output: .name, workspace: .current_workspace } ]' > "$state_file"
+
+  commands=""
+  focus_workspace=""
+  for output in "${ordered_outputs[@]}"; do
+    output_escaped="$(escape_sway "$output")"
+    workspace="wallpaper-${output}"
+    workspace_escaped="$(escape_sway "$workspace")"
+    commands+="focus output \"$output_escaped\"; workspace \"$workspace_escaped\"; move workspace to output \"$output_escaped\"; workspace \"$workspace_escaped\"; "
+
+    if [ -n "$focused_output" ] && [ "$output" = "$focused_output" ]; then
+      focus_workspace="$workspace"
+    fi
+  done
+fi
+
+if [ -n "$focused_output" ]; then
+  focused_output_escaped="$(escape_sway "$focused_output")"
+  commands+="focus output \"$focused_output_escaped\"; "
+  if [ -n "$focus_workspace" ]; then
+    focus_workspace_escaped="$(escape_sway "$focus_workspace")"
+    commands+="workspace \"$focus_workspace_escaped\"; "
+  fi
+fi
+
+[ -n "$commands" ] && exec swaymsg "$commands" >/dev/null

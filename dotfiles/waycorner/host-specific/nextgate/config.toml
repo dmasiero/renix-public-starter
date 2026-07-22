@@ -1,0 +1,6 @@
+[top_right_lock]
+enter_command = [ "/home/doug/dotfiles/bin/sway-lock-and-sleep" ]
+locations = ["top_right"]
+size = 6
+timeout_ms = 250
+color = "#00000000"

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+is_wifi_iface() {
+  local iface="$1"
+  iwctl station "$iface" show >/dev/null 2>&1
+}
+
+is_ignored_iface() {
+  case "$1" in
+    lo|tun*|tap*|docker*|br-*|veth*|virbr*|wg*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+carrier_up() {
+  local iface="$1"
+  [ -r "/sys/class/net/$iface/carrier" ] && [ "$(cat "/sys/class/net/$iface/carrier" 2>/dev/null || echo 0)" = 1 ]
+}
+
+wired_ifaces=()
+for candidate_path in /sys/class/net/*; do
+  [ -e "$candidate_path" ] || continue
+  candidate="$(basename "$candidate_path")"
+  is_ignored_iface "$candidate" && continue
+  is_wifi_iface "$candidate" && continue
+  wired_ifaces+=("$candidate")
+done
+
+if [ "${#wired_ifaces[@]}" -eq 0 ]; then
+  printf '󰈂\n'
+  exit 0
+fi
+
+default_iface="$(ip route show default 2>/dev/null | awk 'NR == 1 { print $5 }')"
+if [ -n "$default_iface" ]; then
+  for iface in "${wired_ifaces[@]}"; do
+    if [ "$iface" = "$default_iface" ]; then
+      printf '\uf0e8<span size="3200"> </span>%s\n' "$iface"
+      exit 0
+    fi
+  done
+fi
+
+for iface in "${wired_ifaces[@]}"; do
+  if carrier_up "$iface"; then
+    printf '\uf0e8<span size="3200"> </span>%s\n' "$iface"
+    exit 0
+  fi
+done
+
+printf '󰈂<span size="3200"> </span>down\n'

@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+battery="$(find /sys/class/power_supply -mindepth 1 -maxdepth 1 \( -type l -o -type d \) | grep '/BAT' | head -n1 || true)"
+if [ -z "$battery" ] || [ ! -f "$battery/capacity" ]; then
+  exit 0
+fi
+
+capacity="$(<"$battery/capacity")"
+status="$(<"$battery/status")"
+
+case "$capacity" in
+  ""|*[!0-9]*) capacity=0 ;;
+esac
+
+if [ "$capacity" -ge 95 ]; then
+  icon="" # battery-full
+elif [ "$capacity" -ge 75 ]; then
+  icon="" # battery-three-quarters
+elif [ "$capacity" -ge 50 ]; then
+  icon="" # battery-half
+elif [ "$capacity" -ge 25 ]; then
+  icon="" # battery-quarter
+else
+  icon="" # battery-empty
+fi
+
+case "$status" in
+  Charging) suffix="" ;;
+  Full) suffix="✓" ;;
+  *) suffix="" ;;
+esac
+
+read_int() {
+  local file="$1"
+  if [ -r "$file" ]; then
+    cat "$file"
+  else
+    printf '0\n'
+  fi
+}
+
+runtime=""
+rate=0
+now=0
+full=0
+if [ -r "$battery/power_now" ]; then
+  rate="$(read_int "$battery/power_now")"
+  now="$(read_int "$battery/energy_now")"
+  full="$(read_int "$battery/energy_full")"
+elif [ -r "$battery/current_now" ]; then
+  rate="$(read_int "$battery/current_now")"
+  now="$(read_int "$battery/charge_now")"
+  full="$(read_int "$battery/charge_full")"
+fi
+
+case "$rate:$now:$full" in
+  *[!0-9:]*|0:*|*:0:*) rate=0 ;;
+esac
+
+if [ "$rate" -gt 0 ]; then
+  case "$status" in
+    Discharging)
+      minutes=$((now * 60 / rate))
+      ;;
+    Charging)
+      remaining=$((full - now))
+      [ "$remaining" -lt 0 ] && remaining=0
+      minutes=$((remaining * 60 / rate))
+      ;;
+    *)
+      minutes=0
+      ;;
+  esac
+
+  if [ "${minutes:-0}" -gt 0 ]; then
+    runtime="$(printf '(%d:%02d)' "$((minutes / 60))" "$((minutes % 60))")"
+  fi
+fi
+
+color="$(awk -v p="$capacity" '
+  function clamp(v) { return v < 0 ? 0 : (v > 255 ? 255 : v) }
+  function lerp(a, b, t) { return int(a + ((b - a) * t) + 0.5) }
+  function rgb(r, g, b) { printf "#%02x%02x%02x", clamp(r), clamp(g), clamp(b) }
+  BEGIN {
+    if (p >= 60) {
+      # Bright green -> yellow.
+      t = (100 - p) / 40
+      rgb(lerp(0, 249, t), lerp(255, 226, t), lerp(102, 175, t))
+    } else if (p >= 30) {
+      # Yellow -> orange.
+      t = (60 - p) / 30
+      rgb(lerp(249, 250, t), lerp(226, 179, t), lerp(175, 135, t))
+    } else {
+      # Orange -> red.
+      t = (30 - p) / 30
+      rgb(lerp(250, 255, t), lerp(179, 0, t), lerp(135, 0, t))
+    }
+  }
+')"
+
+printf '%s<span size="3200"> </span>%s%%%s%s\n\n%s\n' "$icon" "$capacity" "$suffix" "$runtime" "$color"

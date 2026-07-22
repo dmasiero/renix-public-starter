@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+export BROWSER="${BROWSER:-firefox}"
+export PATH="/etc/profiles/per-user/doug/bin:/run/current-system/sw/bin:$HOME/.nix-profile/bin:$PATH"
+exec /etc/profiles/per-user/doug/bin/Telegram "$@"

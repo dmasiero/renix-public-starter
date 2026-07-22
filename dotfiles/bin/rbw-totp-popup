@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+rbw=rbw
+rofi=rofi
+notifySend=notify-send
+clip=xclip
+trExe=tr
+
+notify() {
+  "$notifySend" -a "2FA" "$@"
+}
+
+if ! "$rbw" unlocked >/dev/null 2>&1; then
+  if ! "$rbw" unlock >/dev/null 2>&1; then
+    notify "Bitwarden locked" "Run rbw unlock, then try again"
+    exit 1
+  fi
+fi
+
+entries=$("$rbw" list --fields name,user 2>/dev/null || true)
+if [ -z "$entries" ]; then
+  notify "No Bitwarden entries found" "Run rbw sync, then try again"
+  exit 1
+fi
+
+selection=$(printf '%s\n' "$entries" | "$rofi" -dmenu -i -p "2FA")
+[ -n "$selection" ] || exit 0
+
+name=$(printf '%s' "$selection" | awk -F '\t' '{ print $1 }')
+user=$(printf '%s' "$selection" | awk -F '\t' '{ print $2 }')
+
+if [ -n "$user" ]; then
+  code=$("$rbw" code "$name" "$user" 2>/dev/null || true)
+else
+  code=$("$rbw" code "$name" 2>/dev/null || true)
+fi
+
+if [ -z "$code" ]; then
+  notify "2FA lookup failed" "${name} is missing a valid OTP secret"
+  exit 1
+fi
+
+printf '%s' "$code" | "$clip" -selection clipboard
+printf '%s' "$code" | "$clip" -selection primary
+notify "Copied 2FA code" "$selection"
+
+(
+  sleep 30
+  current=$({ "$clip" -o -selection clipboard 2>/dev/null || true; } | "$trExe" -d '\n')
+  if [ "$current" = "$code" ]; then
+    printf "" | "$clip" -selection clipboard
+  fi
+  current_primary=$({ "$clip" -o -selection primary 2>/dev/null || true; } | "$trExe" -d '\n')
+  if [ "$current_primary" = "$code" ]; then
+    printf "" | "$clip" -selection primary
+  fi
+) >/dev/null 2>&1 &

@@ -1,0 +1,6 @@
+[top_right_lock]
+enter_command = [ "/home/doug/dotfiles/bin/waycorner-lock-and-sleep" ]
+locations = ["top_right"]
+size = 2
+timeout_ms = 750
+color = "#00000000"

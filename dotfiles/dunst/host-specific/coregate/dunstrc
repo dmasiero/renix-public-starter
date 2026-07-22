@@ -1,0 +1,50 @@
+[global]
+monitor = 0
+follow = keyboard
+width = 320
+height = (0, 90)
+origin = bottom-center
+offset = (0, 72)
+notification_limit = 3
+font = monospace 11
+corner_radius = 10
+frame_width = 1
+frame_color = "#5e81ac"
+separator_height = 2
+padding = 12
+horizontal_padding = 14
+text_icon_padding = 8
+progress_bar = true
+progress_bar_height = 10
+progress_bar_frame_width = 1
+progress_bar_min_width = 250
+progress_bar_max_width = 250
+progress_bar_corner_radius = 5
+markup = full
+format = "<b>%s</b>\n%b"
+show_age_threshold = 60
+word_wrap = true
+ignore_newline = false
+stack_duplicates = true
+hide_duplicate_count = true
+show_indicators = false
+icon_position = left
+min_icon_size = 32
+max_icon_size = 32
+timeout = 2
+
+[urgency_low]
+background = "#2e3440"
+foreground = "#eceff4"
+timeout = 1
+
+[urgency_normal]
+background = "#2e3440"
+foreground = "#eceff4"
+timeout = 2
+
+[urgency_critical]
+background = "#3b4252"
+foreground = "#eceff4"
+frame_color = "#bf616a"
+timeout = 0

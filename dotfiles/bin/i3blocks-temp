@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+temp=""
+
+if command -v sensors >/dev/null 2>&1; then
+  temp="$(sensors 2>/dev/null | awk '
+    /Package id 0:/ { gsub(/[+°C]/, "", $4); print int($4); exit }
+    /Tctl:/ { gsub(/[+°C]/, "", $2); print int($2); exit }
+    /Tdie:/ { gsub(/[+°C]/, "", $2); print int($2); exit }
+  ' || true)"
+fi
+
+if [ -z "$temp" ]; then
+  for zone in /sys/class/thermal/thermal_zone*; do
+    [ -r "$zone/type" ] && [ -r "$zone/temp" ] || continue
+    case "$(cat "$zone/type")" in
+      x86_pkg_temp|k10temp|cpu_thermal|cpu-thermal|soc_thermal|acpitz)
+        raw="$(cat "$zone/temp")"
+        if [ -n "$raw" ] && [ "$raw" -gt 0 ] 2>/dev/null; then
+          temp="$((raw / 1000))"
+          break
+        fi
+        ;;
+    esac
+  done
+fi
+
+if [ -z "$temp" ] && command -v nvidia-smi >/dev/null 2>&1; then
+  temp="$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -n1 || true)"
+fi
+
+if [ -n "$temp" ]; then
+  echo "$temp°C"
+else
+  echo "n/a"
+fi

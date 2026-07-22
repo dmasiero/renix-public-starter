@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+exec wezterm start --cwd "$HOME/nix" -- bash -lc 'printf "\033]0;renix\007"
+  cd "$HOME/nix" || exit 1
+
+  nix-build -E '\''let pkgs = import <nixpkgs> {}; in builtins.elemAt (import ./pkgs/renix.nix { inherit pkgs; }).environment.systemPackages 0'\''
+  build_status=$?
+
+  if [ "$build_status" -eq 0 ]; then
+    "$HOME/nix/result/bin/renix"
+    status=$?
+  else
+    status=$build_status
+  fi
+
+  printf "\n"
+  if [ "$status" -eq 0 ]; then
+    printf "~/nix/result/bin/renix finished successfully.\n"
+  else
+    printf "NOTICE: ~/nix/result/bin/renix exited with status %s.\n" "$status"
+  fi
+  printf "Press Backspace to keep this shell open, or any other key to close..."
+  IFS= read -rsn1 key || true
+  printf "\n"
+  if [ "$key" = $'"'"'\177'"'"' ]; then
+    exec fish -i
+  fi
+  exit "$status"
+'

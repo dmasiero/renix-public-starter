@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v bluetoothctl >/dev/null 2>&1; then
+  printf '󰂲\n'
+  exit 0
+fi
+
+btctl() {
+  timeout 1s bluetoothctl "$@" 2>/dev/null || true
+}
+
+controller="$(btctl list | awk '/^Controller[[:space:]]+/ { print $2; exit }')"
+if [ -z "$controller" ]; then
+  printf '󰂲\n'
+  exit 0
+fi
+
+show_output="$(btctl show "$controller")"
+powered="$(printf '%s\n' "$show_output" | awk -F': ' '/^[[:space:]]*Powered:/ { print $2; exit }')"
+
+if [ "$powered" != "yes" ]; then
+  printf '󰂲\n'
+  exit 0
+fi
+
+connected_lines="$(btctl devices Connected)"
+connected_count="$(printf '%s\n' "$connected_lines" | awk 'NF { count++ } END { print count+0 }')"
+
+if [ "$connected_count" -eq 0 ]; then
+  printf '\n'
+  exit 0
+fi
+
+first_name="$(printf '%s\n' "$connected_lines" | sed -n '1s/^Device [^ ]* //p')"
+if [ "$connected_count" -eq 1 ] && [ -n "$first_name" ]; then
+  short_name="$first_name"
+  if [ "${#short_name}" -gt 16 ]; then
+    short_name="${short_name:0:15}…"
+  fi
+  printf '󰂱<span size="3200"> </span>%s\n' "$short_name"
+else
+  printf '󰂱<span size="3200"> </span>%s devices\n' "$connected_count"
+fi

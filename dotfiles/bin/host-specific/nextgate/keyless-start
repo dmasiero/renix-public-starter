@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+session="keyless"
+
+if tmux has-session -t "$session" 2>/dev/null; then
+  exit 0
+fi
+
+exec tmux new-session -d -s "$session" \
+  "keyless --device pipewire --sink paste --language en --model openai/whisper-base.en --hotkey ctrl+shift"

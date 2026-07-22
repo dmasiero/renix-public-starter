@@ -1,0 +1,20 @@
+theme = Brogrammer
+selection-background = 2a84d2
+selection-foreground = ffffff
+cursor-style = block
+background-opacity = 0.85
+font-size = 20
+window-width = 150
+window-height = 42
+split-divider-color = 727272
+#font-family = monospace
+#font-family = MonaspiceNe Nerd Font Mono
+font-family = SF Mono Terminal Regular
+#font-family = Menlo
+cursor-click-to-move = true
+mouse-hide-while-typing = true
+keybind = shift+page_up=scroll_page_up
+keybind = shift+page_down=scroll_page_down
+clipboard-paste-protection = false
+term = xterm-256color
+auto-update = download

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="${XDG_RUNTIME_DIR:-/tmp}/i3blocks"
+state_file="$state_dir/cpu"
+mkdir -p "$state_dir"
+
+read -r _ user nice system idle iowait irq softirq steal _ < /proc/stat
+idle_all=$(( idle + iowait ))
+total=$(( user + nice + system + idle + iowait + irq + softirq + steal ))
+
+if [ -r "$state_file" ]; then
+  read -r previous_total previous_idle < "$state_file"
+else
+  previous_total="$total"
+  previous_idle="$idle_all"
+fi
+
+printf '%s %s\n' "$total" "$idle_all" > "$state_file"
+
+delta_total=$(( total - previous_total ))
+delta_idle=$(( idle_all - previous_idle ))
+
+if [ "$delta_total" -le 0 ]; then
+  echo "0%"
+  exit 0
+fi
+
+usage=$(( (100 * (delta_total - delta_idle)) / delta_total ))
+echo "$usage%"

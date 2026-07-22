@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${BLOCK_BUTTON:-}" in
+  1)
+    gsimplecal >/dev/null 2>&1 &
+    ;;
+esac
+
+printf '<span size="3200"> </span>%s\n' "$(date '+%a %b %-d %Y')"

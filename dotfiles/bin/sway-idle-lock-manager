@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+dotfiles_dir="$(cd "$(dirname "$script_path")/.." && pwd)"
+export DOTFILES="${DOTFILES:-$dotfiles_dir}"
+
+normal_timeout=600
+fullscreen_timeout=7200
+lock_grace_timeout=30
+lock_cmd="$DOTFILES/bin/sway-lock-and-sleep"
+
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if [[ -z "${SWAYSOCK:-}" ]]; then
+  SWAYSOCK="$(ls "$runtime_dir"/sway-ipc.*.sock 2>/dev/null | head -n1)"
+  export SWAYSOCK
+fi
+
+if [[ -z "${SWAYSOCK:-}" ]]; then
+  echo "sway-idle-lock-manager: no Sway IPC socket found" >&2
+  exit 1
+fi
+
+state_dir="$runtime_dir/sway-idle-lock-manager"
+mkdir -p "$state_dir"
+pid_file="$state_dir/pid"
+resumed_file="$state_dir/resumed"
+pending_lock_pid_file="$state_dir/pending-lock-pid"
+
+export SWAY_IDLE_LOCK_CMD="$lock_cmd"
+export SWAY_IDLE_GRACE_TIMEOUT="$lock_grace_timeout"
+export SWAY_IDLE_RESUMED_FILE="$resumed_file"
+export SWAY_IDLE_PENDING_LOCK_PID_FILE="$pending_lock_pid_file"
+
+if [[ -s "$pid_file" ]]; then
+  old_pid="$(cat "$pid_file" 2>/dev/null || true)"
+  if [[ -n "${old_pid:-}" && "$old_pid" != "$$" ]] && kill -0 "$old_pid" 2>/dev/null; then
+    kill "$old_pid" 2>/dev/null || true
+  fi
+fi
+printf '%s\n' "$$" > "$pid_file"
+
+idle_pid=""
+current_timeout=""
+
+cleanup() {
+  if [[ -n "$idle_pid" ]]; then
+    kill "$idle_pid" 2>/dev/null || true
+    wait "$idle_pid" 2>/dev/null || true
+  fi
+  if [[ -s "$pending_lock_pid_file" ]]; then
+    pending_pid="$(cat "$pending_lock_pid_file" 2>/dev/null || true)"
+    [[ -n "${pending_pid:-}" ]] && kill "$pending_pid" 2>/dev/null || true
+  fi
+  rm -f "$pid_file" "$pending_lock_pid_file" "$resumed_file"
+}
+trap cleanup EXIT
+trap 'cleanup; exit 0' INT TERM
+
+has_global_fullscreen() {
+  swaymsg -t get_tree | jq -e '.. | objects | select(.fullscreen_mode? == 2)' >/dev/null
+}
+
+desired_timeout() {
+  if has_global_fullscreen; then
+    printf '%s\n' "$fullscreen_timeout"
+  else
+    printf '%s\n' "$normal_timeout"
+  fi
+}
+
+start_swayidle() {
+  local timeout="$1"
+
+  if [[ -n "$idle_pid" ]]; then
+    kill "$idle_pid" 2>/dev/null || true
+    wait "$idle_pid" 2>/dev/null || true
+  fi
+
+  rm -f "$pending_lock_pid_file" "$resumed_file"
+
+  swayidle -w \
+    timeout "$timeout" 'rm -f "$SWAY_IDLE_RESUMED_FILE"; swaymsg "output * power off" >/dev/null 2>&1 || true; ( sleep "$SWAY_IDLE_GRACE_TIMEOUT"; if [ ! -e "$SWAY_IDLE_RESUMED_FILE" ]; then rm -f "$SWAY_IDLE_PENDING_LOCK_PID_FILE"; exec "$SWAY_IDLE_LOCK_CMD"; fi ) & echo $! > "$SWAY_IDLE_PENDING_LOCK_PID_FILE"' \
+    resume 'touch "$SWAY_IDLE_RESUMED_FILE"; if [ -s "$SWAY_IDLE_PENDING_LOCK_PID_FILE" ]; then kill "$(cat "$SWAY_IDLE_PENDING_LOCK_PID_FILE")" 2>/dev/null || true; rm -f "$SWAY_IDLE_PENDING_LOCK_PID_FILE"; fi; swaymsg "output * power on" >/dev/null 2>&1 || true' \
+    before-sleep "$lock_cmd" &
+  idle_pid=$!
+  current_timeout="$timeout"
+}
+
+while true; do
+  next_timeout="$(desired_timeout)"
+  if [[ "$next_timeout" != "$current_timeout" ]] || [[ -z "$idle_pid" ]] || ! kill -0 "$idle_pid" 2>/dev/null; then
+    start_swayidle "$next_timeout"
+  fi
+  sleep 5
+done

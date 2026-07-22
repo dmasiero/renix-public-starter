@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+existing="$(xdotool search --name '^impala$' 2>/dev/null | head -n1 || true)"
+if [ -n "$existing" ]; then
+  exec xdotool windowactivate "$existing"
+fi
+
+exec wezterm start -- impala

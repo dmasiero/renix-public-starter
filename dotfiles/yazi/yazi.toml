@@ -1,0 +1,87 @@
+[mgr]
+show_hidden = true
+
+[opener]
+edit = [
+  { run = 'nvim "$@"', block = true, desc = "Open with Neovim", for = "linux", spread = true },
+]
+image = [
+  { run = 'nomacs "$@"', orphan = true, desc = "Open with nomacs", for = "linux", spread = true },
+]
+video = [
+  { run = 'vlc "$@"', orphan = true, desc = "Open with VLC", for = "linux", spread = true },
+]
+audio = [
+  { run = 'vlc "$@"', orphan = true, desc = "Open with VLC", for = "linux", spread = true },
+]
+pdf = [
+  { run = 'if command -v masterpdfeditor5 >/dev/null 2>&1; then masterpdfeditor5 "$@"; else xdg-open "$@"; fi', orphan = true, desc = "Open with Master PDF", for = "linux", spread = true },
+]
+spreadsheet = [
+  { run = 'gnumeric "$@"', orphan = true, desc = "Open with Gnumeric", for = "linux", spread = true },
+]
+document = [
+  { run = 'abiword "$@"', orphan = true, desc = "Open with AbiWord", for = "linux", spread = true },
+]
+browser = [
+  { run = 'firefox "$@"', orphan = true, desc = "Open with Firefox", for = "linux", spread = true },
+]
+
+[plugin]
+prepend_previewers = [
+  { mime = "application/*zip",            run = "ouch" },
+  { mime = "application/x-tar",           run = "ouch" },
+  { mime = "application/x-bzip2",         run = "ouch" },
+  { mime = "application/x-7z-compressed", run = "ouch" },
+  { mime = "application/x-rar",           run = "ouch" },
+  { mime = "application/vnd.rar",         run = "ouch" },
+  { mime = "application/x-xz",            run = "ouch" },
+  { mime = "application/xz",              run = "ouch" },
+  { mime = "application/x-zstd",          run = "ouch" },
+  { mime = "application/zstd",            run = "ouch" },
+  { mime = "application/java-archive",    run = "ouch" },
+]
+
+[open]
+prepend_rules = [
+  { mime = "image/*", use = "image" },
+  { name = "*.jpg", use = "image" },
+  { name = "*.JPG", use = "image" },
+  { name = "*.jpeg", use = "image" },
+  { name = "*.JPEG", use = "image" },
+  { name = "*.png", use = "image" },
+  { name = "*.PNG", use = "image" },
+  { mime = "audio/*", use = "audio" },
+  { name = "*.wav", use = "audio" },
+  { name = "*.WAV", use = "audio" },
+  { mime = "video/*", use = "video" },
+  { mime = "application/pdf", use = "pdf" },
+  { name = "*.pdf", use = "pdf" },
+  { name = "*.PDF", use = "pdf" },
+  { name = "*.mp4", use = "video" },
+  { name = "*.MP4", use = "video" },
+  { mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use = "document" },
+  { mime = "application/msword", use = "document" },
+  { name = "*.docx", use = "document" },
+  { name = "*.DOCX", use = "document" },
+  { name = "*.doc", use = "document" },
+  { name = "*.DOC", use = "document" },
+  { mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use = "spreadsheet" },
+  { mime = "application/vnd.ms-excel", use = "spreadsheet" },
+  { mime = "text/csv", use = "spreadsheet" },
+  { mime = "text/x-csv", use = "spreadsheet" },
+  { name = "*.xlsx", use = "spreadsheet" },
+  { name = "*.XLSX", use = "spreadsheet" },
+  { name = "*.xls", use = "spreadsheet" },
+  { name = "*.XLS", use = "spreadsheet" },
+  { name = "*.csv", use = "spreadsheet" },
+  { name = "*.CSV", use = "spreadsheet" },
+  { mime = "text/html", use = "browser" },
+  { name = "*.html", use = "browser" },
+  { name = "*.HTML", use = "browser" },
+  { name = "*.htm", use = "browser" },
+  { name = "*.HTM", use = "browser" },
+  { mime = "text/*", use = "edit" },
+  { mime = "application/json", use = "edit" },
+  { mime = "application/x-shellscript", use = "edit" },
+]

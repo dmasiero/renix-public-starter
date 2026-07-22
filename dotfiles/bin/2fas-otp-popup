@@ -1,0 +1,358 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+rofi=${ROFI:-rofi}
+notify_send=${NOTIFY_SEND:-notify-send}
+tr_exe=${TR:-tr}
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+dotfiles_dir=$(cd -- "$script_dir/.." && pwd)
+
+candidates=(
+  "${TWO_FAS_FILE:-}"
+  "$dotfiles_dir/2fas/2fas-prod.2fas"
+)
+
+backup_file=""
+for candidate in "${candidates[@]}"; do
+  if [ -n "$candidate" ] && [ -r "$candidate" ]; then
+    backup_file="$candidate"
+    break
+  fi
+done
+
+notify() {
+  "$notify_send" -a "2FA" "$@" >/dev/null 2>&1 || true
+}
+
+if [ -z "$backup_file" ]; then
+  notify "2FAS backup not found" "Expected $dotfiles_dir/2fas/2fas-prod.2fas or set TWO_FAS_FILE"
+  exit 1
+fi
+
+python_totp='import base64
+import hashlib
+import hmac
+import json
+import struct
+import sys
+import time
+import urllib.parse
+
+path = sys.argv[1]
+now = int(time.time())
+
+def get_hash(name):
+    return {"SHA1": hashlib.sha1, "SHA256": hashlib.sha256, "SHA512": hashlib.sha512}.get(str(name or "SHA1").upper(), hashlib.sha1)
+
+def hotp(secret, counter, digits, algorithm):
+    secret = secret.upper().replace(" ", "")
+    key = base64.b32decode(secret + "=" * ((8 - len(secret) % 8) % 8), casefold=True)
+    digest = hmac.new(key, struct.pack(">Q", counter), get_hash(algorithm)).digest()
+    offset = digest[-1] & 0x0F
+    code = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
+    return str(code % (10 ** int(digits))).zfill(int(digits))
+
+def service_params(service):
+    otp = service.get("otp") or {}
+    query = {}
+    link = otp.get("link") or ""
+    if link.startswith("otpauth://"):
+        query = {k: v[-1] for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(link).query).items()}
+    return {
+        "secret": service.get("secret") or query.get("secret"),
+        "algorithm": otp.get("algorithm") or query.get("algorithm") or "SHA1",
+        "digits": int(otp.get("digits") or query.get("digits") or 6),
+        "period": int(otp.get("period") or query.get("period") or 30),
+        "token_type": str(otp.get("tokenType") or "TOTP").upper(),
+    }
+
+def labels(service):
+    otp = service.get("otp") or {}
+    name = service.get("name") or otp.get("issuer") or "Unnamed"
+    account = otp.get("account") or otp.get("label") or ""
+    label = f"{name} — {account}" if account and account != name else name
+    return label
+
+def code_for(service):
+    params = service_params(service)
+    period = max(1, params["period"])
+    return hotp(params["secret"], now // period, params["digits"], params["algorithm"]), period
+
+def load_services():
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f).get("services") or []
+'
+
+emit_rofi_rows() {
+  local colors code_color remaining code_weight
+  colors=$(current_color)
+  code_color=${colors%%|*}
+  remaining=${colors##*|}
+  if [ "$remaining" -le 5 ]; then
+    code_weight=heavy
+  elif [ "$remaining" -le 10 ]; then
+    code_weight=ultrabold
+  elif [ "$remaining" -le 20 ]; then
+    code_weight=bold
+  else
+    code_weight=normal
+  fi
+
+  python3 - "$backup_file" "$code_color" "$code_weight" <<'PY'
+import base64
+import hashlib
+import hmac
+import html
+import json
+import struct
+import sys
+import time
+import urllib.parse
+
+path = sys.argv[1]
+code_color = sys.argv[2]
+code_weight = sys.argv[3]
+now = int(time.time())
+
+def get_hash(name):
+    return {"SHA1": hashlib.sha1, "SHA256": hashlib.sha256, "SHA512": hashlib.sha512}.get(str(name or "SHA1").upper(), hashlib.sha1)
+
+def hotp(secret, counter, digits, algorithm):
+    secret = secret.upper().replace(" ", "")
+    key = base64.b32decode(secret + "=" * ((8 - len(secret) % 8) % 8), casefold=True)
+    digest = hmac.new(key, struct.pack(">Q", counter), get_hash(algorithm)).digest()
+    offset = digest[-1] & 0x0F
+    code = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
+    return str(code % (10 ** int(digits))).zfill(int(digits))
+
+def service_params(service):
+    otp = service.get("otp") or {}
+    query = {}
+    link = otp.get("link") or ""
+    if link.startswith("otpauth://"):
+        query = {k: v[-1] for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(link).query).items()}
+    return {
+        "secret": service.get("secret") or query.get("secret"),
+        "algorithm": otp.get("algorithm") or query.get("algorithm") or "SHA1",
+        "digits": int(otp.get("digits") or query.get("digits") or 6),
+        "period": int(otp.get("period") or query.get("period") or 30),
+        "token_type": str(otp.get("tokenType") or "TOTP").upper(),
+    }
+
+def labels(service):
+    otp = service.get("otp") or {}
+    name = service.get("name") or otp.get("issuer") or "Unnamed"
+    account = otp.get("account") or otp.get("label") or ""
+    return f"{name} — {account}" if account and account != name else name
+
+def code_for(service):
+    params = service_params(service)
+    period = max(1, params["period"])
+    return hotp(params["secret"], now // period, params["digits"], params["algorithm"]), period
+
+with open(path, "r", encoding="utf-8") as f:
+    services = json.load(f).get("services") or []
+
+rows = []
+for idx, service in enumerate(services):
+    params = service_params(service)
+    if params["token_type"] != "TOTP" or not params["secret"]:
+        continue
+    try:
+        code, period = code_for(service)
+    except Exception:
+        continue
+    label = labels(service)
+    plain = f"{code}  {label}"
+    display = f"<span foreground=\"{code_color}\" weight=\"{code_weight}\">{html.escape(code)}</span>  {html.escape(label)}"
+    rows.append((service.get("order", {}).get("position", idx), plain, display))
+for row_idx, (_, plain, display) in enumerate(sorted(rows)):
+    print(f"{plain}\0display\x1f{display}\x1finfo\x1f{row_idx}")
+PY
+
+}
+
+code_for_row() {
+  local row=$1
+  python3 -c "$python_totp"'row = int(sys.argv[2])
+services = load_services()
+rows = []
+for idx, service in enumerate(services):
+    params = service_params(service)
+    if params["token_type"] != "TOTP" or not params["secret"]:
+        continue
+    rows.append((service.get("order", {}).get("position", idx), idx, service))
+service = sorted(rows)[row][2]
+code, _ = code_for(service)
+print(code)
+' "$backup_file" "$row"
+}
+
+copy_code() {
+  local code=$1
+  if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy >/dev/null 2>&1; then
+    printf '%s' "$code" | wl-copy --type text/plain
+  elif [ -n "${DISPLAY:-}" ] && command -v xclip >/dev/null 2>&1; then
+    printf '%s' "$code" | xclip -selection clipboard -in
+    printf '%s' "$code" | xclip -selection primary -in
+  else
+    notify "Clipboard failed" "No supported clipboard tool found"
+    exit 1
+  fi
+}
+
+paste_code_later() {
+  (
+    # Wait for rofi to close and return focus to the previously focused app.
+    sleep 0.15
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wtype >/dev/null 2>&1; then
+      wtype -M ctrl -P v -p v -m ctrl >/dev/null 2>&1 || true
+    elif [ -n "${DISPLAY:-}" ] && command -v xdotool >/dev/null 2>&1; then
+      xdotool key --clearmodifiers ctrl+v >/dev/null 2>&1 || true
+    fi
+  ) >/dev/null 2>&1 &
+}
+
+clear_code_later() {
+  local code=$1
+  (
+    sleep 30
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-paste >/dev/null 2>&1 && command -v wl-copy >/dev/null 2>&1; then
+      current=$(wl-paste --no-newline 2>/dev/null || true)
+      if [ "$current" = "$code" ]; then
+        printf '' | wl-copy --type text/plain
+      fi
+    elif [ -n "${DISPLAY:-}" ] && command -v xclip >/dev/null 2>&1; then
+      current=$({ xclip -o -selection clipboard 2>/dev/null || true; } | "$tr_exe" -d '\n')
+      if [ "$current" = "$code" ]; then
+        printf '' | xclip -selection clipboard -in
+      fi
+      current_primary=$({ xclip -o -selection primary 2>/dev/null || true; } | "$tr_exe" -d '\n')
+      if [ "$current_primary" = "$code" ]; then
+        printf '' | xclip -selection primary -in
+      fi
+    fi
+  ) >/dev/null 2>&1 &
+}
+
+current_color() {
+  local now remaining denom red green color text_color
+  now=$(date +%s)
+  remaining=$((30 - (now % 30)))
+
+  denom=29
+  red=$((139 * (denom - remaining + 1) / denom))
+  green=$((255 * (remaining - 1) / denom))
+  [ "$red" -lt 0 ] && red=0
+  [ "$red" -gt 139 ] && red=139
+  [ "$green" -lt 0 ] && green=0
+  [ "$green" -gt 255 ] && green=255
+  color=$(printf '#%02x%02x00' "$red" "$green")
+
+  # Bright green needs dark text; deep red needs light text.
+  if [ "$green" -gt 130 ]; then
+    text_color="#101010"
+  else
+    text_color="#f8f8f8"
+  fi
+
+  printf '%s|%s|%02d' "$color" "$text_color" "$remaining"
+}
+
+current_prompt() {
+  local remaining=${1:-}
+  # Keep the prompt compact so the search query starts immediately after it.
+  if [ -n "$remaining" ]; then
+    printf 'OTP %ss:' "$remaining"
+  else
+    printf 'OTP:'
+  fi
+}
+
+emit_rofi_script_header() {
+  local select_first_code=${1:-false} colors bg rest fg remaining
+  colors=$(current_color)
+  bg=${colors%%|*}
+  rest=${colors#*|}
+  fg=${rest%%|*}
+  remaining=${colors##*|}
+  printf '\0prompt\x1f%s\n' "$(current_prompt "$remaining")"
+  printf '\0theme\x1finputbar { children: [ prompt, entry ]; spacing: 8px; padding: 6px 8px; } entry { expand: true; } element { padding: 1px 8px; }\n'
+  printf '\0markup-rows\x1ftrue\n'
+  printf '\0no-custom\x1ftrue\n'
+  printf '\0use-hot-keys\x1ftrue\n'
+  printf '\0keep-filter\x1ftrue\n'
+  printf '\0keep-selection\x1ftrue\n'
+  if [ "$select_first_code" = true ]; then
+    # Keep selection on the first OTP row; the bottom progress row is nonselectable.
+    printf '\0new-selection\x1f0\n'
+  fi
+}
+
+if [ "${1:-}" = "--rofi-script" ]; then
+  case "${ROFI_RETV:-0}" in
+    1)
+      row=${ROFI_INFO:-}
+      [ -n "$row" ] || exit 0
+      code=$(code_for_row "$row")
+      if [ -z "$code" ]; then
+        notify "2FA lookup failed" "Could not generate code"
+        exit 1
+      fi
+      copy_code "$code"
+      paste_code_later
+      notify "Pasted 2FA code" "Clearing clipboard in 30 seconds"
+      clear_code_later "$code"
+      exit 0
+      ;;
+    10)
+      emit_rofi_script_header
+      emit_rofi_rows
+      exit 0
+      ;;
+    0)
+      emit_rofi_script_header true
+      emit_rofi_rows
+      exit 0
+      ;;
+    *)
+      emit_rofi_script_header
+      emit_rofi_rows
+      exit 0
+      ;;
+  esac
+fi
+
+start_auto_refresh() {
+  (
+    # Give rofi time to open and grab focus, then trigger its hidden custom
+    # refresh action once per second. Script mode refreshes in-place and keeps
+    # the current filter/selection.
+    sleep 1
+    while true; do
+      if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wtype >/dev/null 2>&1; then
+        wtype -M ctrl -P r -p r -m ctrl >/dev/null 2>&1 || true
+      elif [ -n "${DISPLAY:-}" ] && command -v xdotool >/dev/null 2>&1; then
+        xdotool key --clearmodifiers ctrl+r >/dev/null 2>&1 || true
+      else
+        exit 0
+      fi
+      sleep 1
+    done
+  ) &
+  refresh_pid=$!
+}
+
+start_auto_refresh
+cleanup_refresh() {
+  kill "${refresh_pid:-}" >/dev/null 2>&1 || true
+}
+trap cleanup_refresh EXIT INT TERM
+
+"$rofi" \
+  -show otp \
+  -modes "otp:$0 --rofi-script" \
+  -i \
+  -markup \
+  -kb-custom-1 "Control+r"

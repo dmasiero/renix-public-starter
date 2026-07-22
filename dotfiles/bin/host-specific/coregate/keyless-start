@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+session="keyless"
+
+if tmux has-session -t "$session" 2>/dev/null; then
+  exit 0
+fi
+
+# Wait for WirePlumber to expose a real ALSA device before starting
+# keyless. If keyless grabs audio too early, WirePlumber can mark the
+# card busy and never create the normal sink/source nodes.
+for _ in $(seq 1 60); do
+  if wpctl status 2>/dev/null | grep -q '\[alsa\]'; then
+    break
+  fi
+  sleep 1
+done
+
+exec tmux new-session -d -s "$session" \
+  "keyless --device pipewire --sink paste --language en --model openai/whisper-base.en --hotkey ctrl+shift"

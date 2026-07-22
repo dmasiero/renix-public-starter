@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+state_dir="$runtime_dir/waycorner"
+mkdir -p "$state_dir" "$HOME/.cache"
+
+lock_file="$state_dir/start.lock"
+log_file="$HOME/.cache/waycorner.log"
+
+exec 9>"$lock_file"
+flock 9
+
+# Kill any existing waycorner owned by this user before starting a replacement.
+# Use -f because Nix-wrapped processes may appear as full store/profile paths,
+# not just basename "waycorner".
+existing_pids="$(pgrep -u "$USER" -f '[/]bin/(\.waycorner-wrapped|waycorner)$' || true)"
+if [[ -n "$existing_pids" ]]; then
+  printf '%s\n' "$existing_pids" | xargs -r kill 2>/dev/null || true
+  for _ in {1..20}; do
+    sleep 0.1
+    if ! pgrep -u "$USER" -f '[/]bin/(\.waycorner-wrapped|waycorner)$' >/dev/null 2>&1; then
+      break
+    fi
+  done
+  pgrep -u "$USER" -f '[/]bin/(\.waycorner-wrapped|waycorner)$' | xargs -r kill -KILL 2>/dev/null || true
+fi
+
+: >"$log_file"
+flock -u 9
+exec env RUST_LOG="${RUST_LOG:-info}" waycorner >>"$log_file" 2>&1

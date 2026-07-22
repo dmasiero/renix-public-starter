@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+host="${KASA_JUMP_HOST:-100.40.223.131}"
+port="${KASA_JUMP_PORT:-2222}"
+user="${KASA_JUMP_USER:-doug}"
+identity="${KASA_JUMP_IDENTITY:-$HOME/.ssh/DM-20260211}"
+controlPathDir="${XDG_RUNTIME_DIR:-/tmp}/ssh-control"
+
+if [ ! -f "$identity" ]; then
+  echo "kasa: SSH identity not found: $identity" >&2
+  exit 1
+fi
+
+mkdir -p "$controlPathDir"
+
+exec bash -c '
+  port="$1"
+  identity="$2"
+  user="$3"
+  host="$4"
+  control_path="$5"
+  shift 5
+
+  printf "%s\0" "$@" | ssh \
+    -F /dev/null \
+    -p "$port" \
+    -i "$identity" \
+    -o BatchMode=yes \
+    -o IdentitiesOnly=yes \
+    -o ConnectTimeout=2 \
+    -o ConnectionAttempts=1 \
+    -o ServerAliveInterval=2 \
+    -o ServerAliveCountMax=1 \
+    -o StrictHostKeyChecking=accept-new \
+    -o ControlMaster=auto \
+    -o ControlPersist=10m \
+    -o ControlPath="$control_path" \
+    "$user@$host" \
+    "python3 -c \"import os, subprocess, sys; data = sys.stdin.buffer.read().split(b\\\"\\0\\\"); args = [x.decode() for x in data if x]; raise SystemExit(subprocess.run([os.path.expanduser(\\\"~/streamdeck/kasa-agent-ctl\\\"), \\\"exec\\\", *args]).returncode)\""
+' _ "$port" "$identity" "$user" "$host" "$controlPathDir/kasa-jump-%r@%h:%p" "$@"

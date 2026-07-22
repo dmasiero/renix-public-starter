@@ -1,0 +1,75 @@
+name: Docker lab
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build lab
+        run: docker compose build
+      - name: Check bootstrap environment
+        run: |
+          docker compose run --rm -T renix sh -c '
+            for command in awk curl find git grep gzip mount nix perl python3 sed tar; do
+              command -v "$command" >/dev/null || {
+                echo "Missing Renix bootstrap dependency: $command" >&2
+                exit 1
+              }
+            done
+            for command in fd fish fping herdr nvim pi yazi; do
+              ! command -v "$command" >/dev/null || {
+                echo "$command must be activated by renix full, not baked into the image" >&2
+                exit 1
+              }
+            done
+            ! grep -R -E "helium-linux|keymapp|ticktick" \
+              "$RENIX_FLAKE_DIR/pkgs/custom-builds.nix" \
+              "$RENIX_FLAKE_DIR/modules"
+          '
+      - name: Check direct Renix command
+        run: |
+          docker compose run --rm -T renix sh -c '
+            command -v renix
+            renix --help | grep -F "A unified command layer"
+          '
+      - name: Activate the real demo environment with Renix full
+        run: |
+          docker compose run --rm -T renix sh -c '
+            renix full
+            for command in dig fd fish fping fzf git htop jq lazygit mtr nvim ouch pi pwgen rg tea unzip wget whois yazi zip; do
+              command -v "$command" >/dev/null || {
+                echo "Missing activated demo CLI tool: $command" >&2
+                exit 1
+              }
+            done
+            for command in ansible aws bw ffmpeg qmk weechat xfreerdp; do
+              ! command -v "$command" >/dev/null || {
+                echo "Unexpected heavyweight demo tool: $command" >&2
+                exit 1
+              }
+            done
+            command -v herdr >/dev/null
+            test "$(pi --version)" = "0.81.1"
+            nvim --headless "+lua if vim.g.mapleader ~= [[ ]] then vim.cmd([[cquit 1]]) end" +qa
+            test -f "$HOME/.pi/agent/metadata/mattpocock-skills.json"
+            test "$(find "$HOME/.pi/agent/skills" -type l | wc -l)" -gt 0
+          '
+      - name: Run tests
+        run: docker compose run --rm -T renix test
+      - name: Exercise container cleanup workflow
+        run: docker compose run --rm -T renix sh -c 'renix clean'
+      - name: Check guided tour commands
+        run: |
+          docker compose run --rm -T renix tour | tee /tmp/renix-tour.txt
+          ! grep -F ' IMAGE ' /tmp/renix-tour.txt
+          grep -F 'ghcr.io/dmasiero/renix-public-starter:latest shell' /tmp/renix-tour.txt
+      - name: Evaluate demo host
+        run: docker compose run --rm -T renix verify demo

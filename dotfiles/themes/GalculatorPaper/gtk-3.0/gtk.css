@@ -1,0 +1,13 @@
+@import url("resource:///org/gtk/libgtk/theme/Adwaita/gtk-contained.css");
+
+/* Galculator paper mode: make the history and input easier to read. */
+treeview.view,
+treeview.view * {
+  font-size: 48pt;
+  min-height: 72px;
+}
+
+entry {
+  font-size: 48pt;
+  min-height: 72px;
+}

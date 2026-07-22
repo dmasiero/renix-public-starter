@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+uri_to_path() {
+  python3 - "$1" <<'PY'
+import sys
+from urllib.parse import unquote, urlparse
+arg = sys.argv[1]
+if arg.startswith('file:'):
+    u = urlparse(arg)
+    print(unquote(u.path))
+else:
+    print(arg)
+PY
+}
+
+target="${HOME}/downloads"
+
+for arg in "$@"; do
+  [ -n "$arg" ] || continue
+  path="$(uri_to_path "$arg")"
+  if [ -e "$path" ]; then
+    target="$path"
+    break
+  fi
+done
+
+if [ -f "$target" ]; then
+  target="$(dirname "$target")"
+fi
+
+exec wezterm start -- yazi "$target"

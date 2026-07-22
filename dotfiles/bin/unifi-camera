@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+rc_socket="${XDG_RUNTIME_DIR:-/tmp}/greta-tv-vlc-$$.sock"
+rm -f "$rc_socket"
+
+vlc \
+  --qt-minimal-view \
+  --no-video-title-show \
+  --no-qt-name-in-title \
+  --extraintf oldrc \
+  --rc-unix "$rc_socket" \
+  --meta-title 'Greta TV' \
+  --input-title-format 'Greta TV' \
+  --rtsp-tcp \
+  --network-caching=3000 \
+  --live-caching=3000 \
+  'rtsp://10.22.5.155:7447/Q7cfH9Aa12Le9TiG' &
+vlc_pid=$!
+muted=0
+
+for _ in $(seq 1 50); do
+  if [ "$muted" -eq 0 ] && [ -S "$rc_socket" ]; then
+    python3 -c 'import socket, sys; s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendall(b"key key-vol-mute\n"); s.close()' "$rc_socket" >/dev/null 2>&1 || true
+    muted=1
+  fi
+
+  window_ids="$(xdotool search --pid "$vlc_pid" 2>/dev/null || true)"
+  if [ -n "$window_ids" ]; then
+    for window_id in $window_ids; do
+      xdotool set_window --name 'Greta TV' "$window_id" >/dev/null 2>&1 || true
+    done
+  fi
+  sleep 0.1
+done
+
+wait "$vlc_pid"
+rm -f "$rc_socket"

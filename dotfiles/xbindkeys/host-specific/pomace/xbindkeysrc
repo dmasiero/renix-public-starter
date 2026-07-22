@@ -1,0 +1,14 @@
+"bash -lc 'xclip -o -selection primary | xclip -selection clipboard'"
+  b:10
+
+"$DOTFILES/bin/sway-workspace-cycle"
+  b:11
+
+"galculator"
+  shift+mod4 + equal
+
+"wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 1%+"
+  control+shift + b:6
+
+"wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 1%-"
+  control+shift + b:7

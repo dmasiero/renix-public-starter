@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+idle_timeout="${1:-1}"
+if ! [[ "$idle_timeout" =~ ^[0-9]+$ ]] || [[ "$idle_timeout" -lt 1 ]]; then
+  echo "sway-display-sleep: idle timeout must be a positive integer" >&2
+  exit 2
+fi
+
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if [[ -z "${SWAYSOCK:-}" ]]; then
+  SWAYSOCK="$(ls "$runtime_dir"/sway-ipc.*.sock 2>/dev/null | head -n1)"
+  export SWAYSOCK
+fi
+
+if [[ -z "${SWAYSOCK:-}" ]]; then
+  echo "sway-display-sleep: no Sway IPC socket found" >&2
+  exit 1
+fi
+
+state_dir="$runtime_dir/sway-display-sleep"
+mkdir -p "$state_dir"
+resume_file="$state_dir/resumed"
+rm -f "$resume_file"
+
+# This helper is mostly called from an explicit hotkey. For that immediate
+# path, power the outputs off directly after a short key-release grace period,
+# then let swayidle watch for the next real activity to power them back on.
+# Longer timeouts, used while locked after a wake, still require real
+# inactivity before powering off.
+if [[ "$idle_timeout" -eq 1 ]]; then
+  sleep 0.75
+  swaymsg "output * power off"
+  swayidle -w \
+    timeout 1 ':' \
+    resume "swaymsg \"output * power on\"; touch '$resume_file'" &
+else
+  swayidle -w \
+    timeout "$idle_timeout" 'swaymsg "output * power off"' \
+    resume "swaymsg \"output * power on\"; touch '$resume_file'" &
+fi
+swayidle_pid=$!
+
+cleanup() {
+  kill "$swayidle_pid" 2>/dev/null || true
+}
+force_idle() {
+  kill -USR1 "$swayidle_pid" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+trap force_idle USR1
+
+while kill -0 "$swayidle_pid" 2>/dev/null; do
+  [[ -e "$resume_file" ]] && break
+  sleep 0.1
+done

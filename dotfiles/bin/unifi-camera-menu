@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+selection=$(printf '%s\n' 'Greta TV (10B)' | rofi -dmenu -i -p 'Camera' -theme-str 'window { width: 24em; }')
+
+case "$selection" in
+  'Greta TV (10B)')
+    exec /home/doug/dotfiles/bin/unifi-camera
+    ;;
+  '')
+    exit 0
+    ;;
+  *)
+    exit 1
+    ;;
+esac

@@ -1,0 +1,5 @@
+*.zip
+.git
+**/.git
+result
+**/result

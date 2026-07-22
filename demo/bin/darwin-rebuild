@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'demo adapter: darwin-rebuild %s\n' "$*"
+printf 'macOS activation is demonstrated but not performed by a Linux container.\n'

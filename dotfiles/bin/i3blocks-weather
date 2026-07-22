@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# wttr.in has been timing out from this network, which makes the sway/i3blocks
+# weather block show "weather n/a". Use the National Weather Service API for
+# New Windsor instead; the hourly forecast endpoint gives a compact current-ish
+# temperature and condition without needing an API key.
+url="https://api.weather.gov/gridpoints/OKX/27,76/forecast/hourly"
+forecastUrl="https://forecast.weather.gov/zipcity.php?inputstring=12553"
+
+case "${BLOCK_BUTTON:-}" in
+  1)
+    firefox "$forecastUrl" >/dev/null 2>&1 &
+    ;;
+esac
+
+data="$(curl --fail --silent --show-error --max-time 8 --user-agent 'DougWeather/1.0' "$url" 2>/dev/null || true)"
+if [ -z "$data" ]; then
+  echo "weather n/a"
+  exit 0
+fi
+
+read -r temp_f forecast < <(
+  printf '%s\n' "$data" \
+    | jq -r '.properties.periods[0] | [.temperature, (.shortForecast // "")] | @tsv' 2>/dev/null \
+    || printf 'na\tna\n'
+)
+
+forecast_lc="$(printf '%s' "$forecast" | tr '[:upper:]' '[:lower:]')"
+case "$forecast_lc" in
+  *thunder*) icon="" ;;
+  *snow*|*sleet*|*ice*|*freez*) icon="" ;;
+  *rain*|*shower*|*drizzle*) icon="" ;;
+  *fog*|*haze*|*smoke*) icon="󰖑" ;;
+  *sunny*|*clear*) icon="" ;;
+  *cloud*) icon="" ;;
+  *) icon="" ;;
+esac
+
+if [ "$temp_f" = "na" ] || [ -z "$temp_f" ] || [ "$temp_f" = "null" ]; then
+  text="n/a"
+else
+  text="${temp_f}°F"
+fi
+
+# Font Awesome's weather glyphs have a wide advance. Use Pango markup with
+# negative letter spacing plus a tiny scaled spacer before the temperature.
+printf '<span letter_spacing="-1000">%s</span><span size="3200"> </span>%s\n' "$icon" "$text"

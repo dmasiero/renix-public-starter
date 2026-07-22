@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="/etc/profiles/per-user/${USER:-doug}/bin:/run/current-system/sw/bin:${PATH}"
+
+wallpaper="${1:-}"
+config_file="${SWAY_WALLPAPER_CONFIG:-}"
+if [ -z "$wallpaper" ] || [ ! -f "$wallpaper" ]; then
+  echo "Usage: $(basename "$0") /path/to/wallpaper" >&2
+  exit 2
+fi
+
+command -v swaymsg >/dev/null 2>&1 || { echo "swaymsg not found" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo "jq not found" >&2; exit 1; }
+command -v ffmpeg >/dev/null 2>&1 || { echo "ffmpeg not found" >&2; exit 1; }
+
+outputs_json="$(swaymsg -t get_outputs)"
+active_outputs="$(printf '%s\n' "$outputs_json" | jq '[.[] | select(.active)]')"
+count="$(printf '%s\n' "$active_outputs" | jq 'length')"
+if [ "$count" -eq 0 ]; then
+  echo "No active sway outputs" >&2
+  exit 1
+fi
+
+min_x="$(printf '%s\n' "$active_outputs" | jq 'map(.rect.x) | min')"
+min_y="$(printf '%s\n' "$active_outputs" | jq 'map(.rect.y) | min')"
+max_x="$(printf '%s\n' "$active_outputs" | jq 'map(.rect.x + .rect.width) | max')"
+max_y="$(printf '%s\n' "$active_outputs" | jq 'map(.rect.y + .rect.height) | max')"
+total_w=$((max_x - min_x))
+total_h=$((max_y - min_y))
+
+if [ -n "$config_file" ]; then
+  # The generated config references these segments, so keep them with state
+  # rather than under ~/.cache where cleanup could break the next sway start.
+  cache_dir="$(dirname "$config_file")/sway-wallpaper-span"
+else
+  cache_dir="${XDG_CACHE_HOME:-${HOME}/.cache}/sway-wallpaper-span"
+fi
+mkdir -p "$cache_dir"
+layout_key="$(printf '%s\n' "$active_outputs" | jq -c 'map({name,rect,transform}) | sort_by(.name)')"
+# Include a script version in the key so old incorrectly pre-rotated segments are not reused.
+key="$(printf 'v2:%s:%s:%s:%s:%s\n' "$wallpaper" "$(stat -c %Y "$wallpaper")" "$total_w" "$total_h" "$layout_key" | sha256sum | awk '{print $1}')"
+work_dir="$cache_dir/$key"
+mkdir -p "$work_dir"
+composite="$work_dir/span.png"
+
+# Sway's output rects are already in transformed/logical coordinates. The
+# background should be generated in that same coordinate space; sway/wlroots
+# handles the physical output transform. Do not pre-rotate per-output images.
+if [ ! -f "$composite" ]; then
+  ffmpeg -nostdin -hide_banner -loglevel error -y \
+    -i "$wallpaper" \
+    -vf "scale=${total_w}:${total_h}:force_original_aspect_ratio=increase,crop=${total_w}:${total_h}" \
+    "$composite"
+fi
+
+printf '%s\n' "$active_outputs" | jq -r '.[] | [.name, .rect.x, .rect.y, .rect.width, .rect.height] | @tsv' |
+while IFS=$'\t' read -r name x y w h; do
+  safe_name="$(printf '%s' "$name" | tr -c 'A-Za-z0-9_.-' '_')"
+  segment="$work_dir/${safe_name}.png"
+  crop_x=$((x - min_x))
+  crop_y=$((y - min_y))
+  if [ ! -f "$segment" ]; then
+    tmp_segment="${segment}.tmp.$$.png"
+    ffmpeg -nostdin -hide_banner -loglevel error -y \
+      -i "$composite" \
+      -vf "crop=${w}:${h}:${crop_x}:${crop_y}" \
+      "$tmp_segment"
+    mv "$tmp_segment" "$segment"
+  fi
+  printf '%s\t%s\n' "$name" "$segment"
+done > "$work_dir/segments.tsv"
+
+# Apply only after every segment exists, and send all output changes in one
+# swaymsg transaction to avoid the visible per-monitor flashing/cycling.
+commands=""
+config_lines=""
+while IFS=$'\t' read -r name segment; do
+  escaped_name="$(printf '%s' "$name" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  escaped_segment="$(printf '%s' "$segment" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  commands+="output \"$escaped_name\" bg \"$escaped_segment\" fill; "
+  config_lines+="output \"$escaped_name\" bg \"$escaped_segment\" fill"$'\n'
+done < "$work_dir/segments.tsv"
+
+if [ -n "$config_file" ]; then
+  mkdir -p "$(dirname "$config_file")"
+  tmp_config="${config_file}.tmp.$$"
+  printf '%s' "$config_lines" > "$tmp_config"
+  mv "$tmp_config" "$config_file"
+fi
+
+[ -n "$commands" ] && swaymsg "$commands" >/dev/null

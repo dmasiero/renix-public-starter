@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+sink="${1:-bluez_output.B0_B4_48_F7_FB_60.1}"
+target="${sink%.monitor}.monitor"
+
+exec pw-record --target "$target" - --format=s16 --rate=48000 --channels=2 2>/dev/null \
+  | python3 -c 'import sys,struct,math,time
+buf=48000*2*2//4
+while True:
+    d=sys.stdin.buffer.read(buf)
+    if not d:
+        break
+    s=struct.unpack("<"+"h"*(len(d)//2), d)
+    peak=max(abs(x) for x in s) if s else 0
+    db=-999 if peak == 0 else 20*math.log10(peak/32767)
+    clipped=sum(1 for x in s if abs(x) >= 32760)
+    print("%s peak=%6.2f dBFS clipped_samples=%d" % (time.strftime("%H:%M:%S"), db, clipped), flush=True)
+'

@@ -1,0 +1,6 @@
+
+@theme "Arc-Dark"
+
+configuration {
+  font: "JetBrainsMono Nerd Font, Noto Color Emoji 18";
+}

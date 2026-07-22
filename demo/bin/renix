@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+flake_dir=${RENIX_FLAKE_DIR:?RENIX_FLAKE_DIR is not set}
+full_mode=false
+
+for argument in "$@"; do
+  case "$argument" in
+    full|-f)
+      full_mode=true
+      ;;
+  esac
+done
+
+bash "$flake_dir/pkgs/renix/renix.sh" "$@"
+
+if [[ "$full_mode" == true && "${RENIX_DEMO:-0}" == 1 ]]; then
+  cat <<'EOF'
+
+Renix full completed. Herdr, Pi, and Fish are ready in the container.
+Switching to Fish. Run `herdr --help`, `pi --help`, or `nvim` to explore.
+Exiting Fish closes the container.
+EOF
+
+  if [[ "${RENIX_FORCE_FISH:-0}" == 1 ]]; then
+    exec fish
+  fi
+  if [[ -t 0 && -t 1 ]]; then
+    parent_pid=$PPID
+    fish_status=0
+    fish || fish_status=$?
+    if (( parent_pid > 0 )); then
+      kill -KILL "$parent_pid"
+    fi
+    exit "$fish_status"
+  fi
+fi

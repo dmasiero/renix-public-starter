@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="${XDG_RUNTIME_DIR:-/tmp}/sway-workspace-cycle"
+state_file="$state_dir/mode"
+mkdir -p "$state_dir"
+
+escape_sway() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+if ! command -v swaymsg >/dev/null 2>&1; then
+  exit 1
+fi
+msg_cmd="swaymsg"
+
+outputs_json="$($msg_cmd -t get_outputs)"
+workspaces_json="$($msg_cmd -t get_workspaces)"
+focused_output="$(printf '%s\n' "$workspaces_json" | jq -r '.[] | select(.focused) | .output' | head -n1)"
+
+mapfile -t ordered_outputs < <(
+  printf '%s\n' "$outputs_json" | jq -r '
+    [ .[]
+      | select(.active and .current_workspace != null)
+      | { name: .name, x: .rect.x, y: .rect.y }
+    ]
+    | sort_by(.x, .y, .name)
+    | .[].name
+  '
+)
+
+if [ "${#ordered_outputs[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+current_mode=0
+if [ -r "$state_file" ]; then
+  current_mode="$(cat "$state_file" 2>/dev/null || printf '0')"
+fi
+
+has_high_workspace_set="$(printf '%s\n' "$workspaces_json" | jq -r 'any(.[]; (.name == "9") or (.name == "10") or (.name == "11") or (.name == "12"))')"
+
+case "$current_mode" in
+  0)
+    next_mode=1
+    ;;
+  1)
+    if [ "$has_high_workspace_set" = "true" ]; then
+      next_mode=2
+    else
+      next_mode=0
+    fi
+    ;;
+  *)
+    next_mode=0
+    ;;
+esac
+
+printf '%s\n' "$next_mode" > "$state_file"
+
+case "$next_mode" in
+  0) workspace_targets=(1 2 3 4) ;;
+  1) workspace_targets=(5 6 7 8) ;;
+  2) workspace_targets=(9 10 11 12) ;;
+esac
+
+commands=""
+focus_workspace=""
+
+for i in "${!ordered_outputs[@]}"; do
+  output="${ordered_outputs[$i]}"
+  output_escaped="$(escape_sway "$output")"
+
+  if [ "$i" -ge "${#workspace_targets[@]}" ]; then
+    break
+  fi
+  workspace="${workspace_targets[$i]}"
+
+  workspace_escaped="$(escape_sway "$workspace")"
+  commands+="focus output \"$output_escaped\"; workspace \"$workspace_escaped\"; move workspace to output \"$output_escaped\"; workspace \"$workspace_escaped\"; "
+
+  if [ -n "$focused_output" ] && [ "$output" = "$focused_output" ]; then
+    focus_workspace="$workspace"
+  fi
+done
+
+if [ -n "$focused_output" ]; then
+  focused_output_escaped="$(escape_sway "$focused_output")"
+  commands+="focus output \"$focused_output_escaped\"; "
+  if [ -n "$focus_workspace" ]; then
+    focus_workspace_escaped="$(escape_sway "$focus_workspace")"
+    commands+="workspace \"$focus_workspace_escaped\"; "
+  fi
+fi
+
+[ -n "$commands" ] && exec "$msg_cmd" "$commands" >/dev/null

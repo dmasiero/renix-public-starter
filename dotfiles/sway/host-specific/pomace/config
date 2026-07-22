@@ -1,0 +1,18 @@
+set $mod Mod4
+set $sway_font pango:DejaVu Sans Mono, Font Awesome 7 Free Solid, Symbols Nerd Font Mono 12
+set $sway_bar_font pango:DejaVu Sans Mono, Font Awesome 7 Free Solid, Symbols Nerd Font Mono 14
+set $terminal_cmd kitty
+set $DOTFILES ~/dotfiles
+
+include $DOTFILES/sway/common/prelude.conf
+include $DOTFILES/sway/common/session-env.conf
+include $DOTFILES/sway/common/startup.conf
+include $DOTFILES/sway/host-specific/pomace/startup.conf
+include $DOTFILES/sway/common/core-bindings.conf
+include $DOTFILES/sway/host-specific/pomace/hardware-bindings.conf
+include $DOTFILES/sway/common/app-bindings.conf
+include $DOTFILES/sway/common/window-rules.conf
+include $DOTFILES/sway/host-specific/pomace/window-rules.conf
+include $DOTFILES/sway/common/system-mode.conf
+include $DOTFILES/sway/host-specific/pomace/display-mode.conf
+include $DOTFILES/sway/common/bar.conf

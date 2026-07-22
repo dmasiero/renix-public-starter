@@ -1,0 +1,82 @@
+[volume]
+command=$DOTFILES/bin/i3blocks-volume
+color=#f9e2af
+interval=1
+markup=pango
+
+[wifi]
+command=$DOTFILES/bin/i3blocks-wifi
+color=#89dceb
+interval=5
+markup=pango
+
+[ethernet]
+command=$DOTFILES/bin/i3blocks-ethernet
+color=#94e2d5
+interval=5
+markup=pango
+
+[bluetooth]
+command=$DOTFILES/bin/i3blocks-bluetooth
+color=#89b4fa
+interval=5
+markup=pango
+
+[weather]
+command=$DOTFILES/bin/i3blocks-weather
+color=#fab387
+interval=600
+markup=pango
+
+[download]
+command=printf '<span size="3200"> </span>%s\n' "$($DOTFILES/bin/i3blocks-bandwidth rx)"
+color=#a6e3a1
+interval=1
+markup=pango
+
+[upload]
+command=printf '<span size="3200"> </span>%s\n' "$($DOTFILES/bin/i3blocks-bandwidth tx)"
+color=#fab387
+interval=1
+markup=pango
+
+[cpu]
+command=printf '<span size="3200"> </span>%s\n' "$($DOTFILES/bin/i3blocks-cpu)"
+color=#f38ba8
+interval=2
+markup=pango
+
+[temp]
+command=printf '<span size="3200"> </span>%s\n' "$($DOTFILES/bin/i3blocks-temp)"
+color=#eba0ac
+interval=10
+markup=pango
+
+[memory]
+command=printf '<span size="3200"> </span>%s\n' "$($DOTFILES/bin/i3blocks-memory)"
+color=#cba6f7
+interval=10
+markup=pango
+
+[disk]
+command=printf '<span size="3200"> </span>%s\n' "$($DOTFILES/bin/i3blocks-disk)"
+color=#94e2d5
+interval=30
+markup=pango
+
+[battery]
+command=$DOTFILES/bin/i3blocks-battery
+interval=30
+markup=pango
+
+[date]
+command=$DOTFILES/bin/i3blocks-date
+color=#74c7ec
+interval=60
+markup=pango
+
+[time]
+command=printf '<span size="3200"> </span>%s\n' "$(date '+%H:%M')"
+color=#cdd6f4
+interval=5
+markup=pango

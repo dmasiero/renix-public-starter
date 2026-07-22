@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+focused_window_id() {
+  if command -v swaymsg >/dev/null 2>&1 && [ -n "${SWAYSOCK:-}" ]; then
+    swaymsg -t get_tree | jq -r '
+      recurse(.nodes[]?, .floating_nodes[]?)
+      | select(.focused? == true and (.pid? != null or .app_id? != null or .window? != null))
+      | .id
+    ' | tail -n1
+  fi
+}
+
+refocus_previous_window() {
+  [ -n "${CLIPBOARD_POPUP_FOCUS_ID:-}" ] || return 0
+
+  if command -v swaymsg >/dev/null 2>&1 && [ -n "${SWAYSOCK:-}" ]; then
+    swaymsg "[con_id=${CLIPBOARD_POPUP_FOCUS_ID}] focus" >/dev/null 2>&1 || true
+  fi
+}
+
+paste_active_window() {
+  refocus_previous_window
+
+  if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wtype >/dev/null 2>&1; then
+    wtype -M ctrl -M shift -P v -p v -m shift -m ctrl >/dev/null 2>&1 || true
+  elif [ -n "${DISPLAY:-}" ] && command -v xdotool >/dev/null 2>&1; then
+    xdotool key --clearmodifiers ctrl+shift+v >/dev/null 2>&1 || true
+  fi
+}
+
+fzf_bindings='j:down,k:up,ctrl-s:enable-search+unbind(j,k)+change-prompt(search> ),ctrl-g:disable-search+rebind(j,k)+change-prompt(nav> )'
+
+fzf_common=(
+  --disabled
+  --layout=reverse
+  --prompt='nav> '
+  --header='Enter: paste • Ctrl+D: delete • Ctrl+S: search • Ctrl+G: nav • Esc: cancel'
+  --bind "$fzf_bindings"
+)
+
+delete_greenclip_selection() {
+  local greenclip tmp
+  greenclip=${GREENCLIP:-greenclip}
+  tmp=$(mktemp)
+  trap 'rm -f "$tmp"' EXIT
+  printf '%s' "${CLIPBOARD_POPUP_DELETE:-}" | md5sum | awk '{print $1}' > "$tmp"
+  "$greenclip" prune "$tmp"
+}
+
+if [ "${1:-}" = "--delete-greenclip" ]; then
+  delete_greenclip_selection
+  exit 0
+fi
+
+copy_file_to_clipboards_and_paste() {
+  local input=$1
+
+  if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy >/dev/null 2>&1; then
+    wl-copy < "$input"
+    paste_active_window
+    wl-copy --primary < "$input" >/dev/null 2>&1 &
+  elif [ -n "${DISPLAY:-}" ] && command -v xclip >/dev/null 2>&1; then
+    xclip -selection clipboard < "$input"
+    paste_active_window
+    xclip -selection primary < "$input" >/dev/null 2>&1 &
+  fi
+}
+
+launch_popup_terminal() {
+  local terminal
+  terminal=${CLIPBOARD_POPUP_TERMINAL:-${TERMINAL:-kitty}}
+
+  case "$(basename "$terminal")" in
+    kitty)
+      command -v "$terminal" >/dev/null 2>&1 || return 1
+      "$terminal" --class clipboard-popup --title clipboard-popup "$0" --terminal
+      ;;
+    wezterm)
+      command -v "$terminal" >/dev/null 2>&1 || return 1
+      "$terminal" start --always-new-process --class clipboard-popup -- "$0" --terminal
+      ;;
+    *)
+      command -v "$terminal" >/dev/null 2>&1 || return 1
+      "$terminal" -e "$0" --terminal
+      ;;
+  esac
+}
+
+if [ "${1:-}" != "--terminal" ]; then
+  export CLIPBOARD_POPUP_FOCUS_ID CLIPBOARD_POPUP_OUTPUT CLIPBOARD_POPUP_SELECTED
+  CLIPBOARD_POPUP_FOCUS_ID=$(focused_window_id || true)
+  CLIPBOARD_POPUP_OUTPUT=$(mktemp)
+  CLIPBOARD_POPUP_SELECTED=$(mktemp)
+  rm -f "$CLIPBOARD_POPUP_SELECTED"
+  trap 'rm -f "$CLIPBOARD_POPUP_OUTPUT" "$CLIPBOARD_POPUP_SELECTED"' EXIT
+
+  if launch_popup_terminal; then
+    if [ -e "$CLIPBOARD_POPUP_SELECTED" ]; then
+      copy_file_to_clipboards_and_paste "$CLIPBOARD_POPUP_OUTPUT"
+    fi
+    exit 0
+  fi
+fi
+
+if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v cliphist >/dev/null 2>&1 && command -v wl-copy >/dev/null 2>&1; then
+  selection=$(
+    cliphist list | fzf "${fzf_common[@]}" \
+      --delimiter=$'\t' \
+      --with-nth='2..' \
+      --bind 'ctrl-d:execute-silent(printf %s {} | cliphist delete)+reload(cliphist list)'
+  ) || exit 0
+
+  [ -n "$selection" ] || exit 0
+
+  if [ -n "${CLIPBOARD_POPUP_OUTPUT:-}" ] && [ -n "${CLIPBOARD_POPUP_SELECTED:-}" ]; then
+    printf '%s' "$selection" | cliphist decode > "$CLIPBOARD_POPUP_OUTPUT"
+    : > "$CLIPBOARD_POPUP_SELECTED"
+  else
+    tmp=$(mktemp)
+    trap 'rm -f "$tmp"' EXIT
+    printf '%s' "$selection" | cliphist decode > "$tmp"
+    copy_file_to_clipboards_and_paste "$tmp"
+  fi
+  exit 0
+fi
+
+greenclip=${GREENCLIP:-greenclip}
+clip=${XCLIP:-xclip}
+script_path=$(readlink -f "$0")
+delete_bind="ctrl-d:execute-silent(CLIPBOARD_POPUP_DELETE={} ${script_path@Q} --delete-greenclip)+reload(${greenclip@Q} print)"
+
+selection=$("$greenclip" print | fzf "${fzf_common[@]}" --bind "$delete_bind") || exit 0
+[ -n "$selection" ] || exit 0
+
+if [ -n "${CLIPBOARD_POPUP_OUTPUT:-}" ] && [ -n "${CLIPBOARD_POPUP_SELECTED:-}" ]; then
+  printf '%s' "$selection" > "$CLIPBOARD_POPUP_OUTPUT"
+  : > "$CLIPBOARD_POPUP_SELECTED"
+else
+  tmp=$(mktemp)
+  trap 'rm -f "$tmp"' EXIT
+  printf '%s' "$selection" > "$tmp"
+  copy_file_to_clipboards_and_paste "$tmp"
+fi

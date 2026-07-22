@@ -1,0 +1,9 @@
+theme = ""
+
+visualizer = "Rain"
+sample_rate = 48000
+buffer_ms = 500
+bit_depth = 16
+resample_quality = 2
+eq_preset = "Flat"
+eq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]

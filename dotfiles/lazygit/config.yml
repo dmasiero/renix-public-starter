@@ -1,0 +1,10 @@
+# When launched outside a git repository, open the recent repositories view
+# instead of prompting to create a repository.
+notARepository: skip
+
+# Hide startup popups such as donation/update notices.
+disableStartupPopups: true
+
+# Hide the bottom status/help line, including Ask a question, Donate, and version.
+gui:
+  showBottomLine: false

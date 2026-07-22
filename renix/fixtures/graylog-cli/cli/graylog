@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+printf 'Public Graylog CLI fixture. Replace the graylogCli input with your own package source.\n'

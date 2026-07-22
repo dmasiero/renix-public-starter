@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+change="${1:-}"
+if [ -n "$change" ]; then
+  brightnessctl --min-value=1 set "$change" >/dev/null
+fi
+
+info="$(brightnessctl --machine-readable info)"
+percent="$(printf '%s' "$info" | awk -F, '{ gsub(/%/, "", $4); print $4 }')"
+percent="${percent:-0}"
+
+dunstify \
+  --app-name=brightness \
+  --replace=2594 \
+  --urgency=low \
+  --timeout=1000 \
+  --hints=int:value:"$percent" \
+  --icon=display-brightness-symbolic \
+  "Brightness" "$percent%"

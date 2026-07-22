@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec wezterm start -- tmux attach -t keyless

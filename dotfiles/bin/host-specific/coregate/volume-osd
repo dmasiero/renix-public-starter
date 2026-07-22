@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+action="${1:-}"
+speaker_mute_state="${XDG_RUNTIME_DIR:-/tmp}/speaker-mute-toggle.state"
+case "$action" in
+  up)
+    wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 >/dev/null 2>&1 || true
+    printf '0\n' > "$speaker_mute_state" 2>/dev/null || true
+    wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%+ >/dev/null
+    ;;
+  down)
+    wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%- >/dev/null
+    ;;
+  toggle)
+    # Some ThinkPads emit both XF86AudioMicMute and XF86AudioMute for F4.
+    # If a mic mute just happened, ignore the speaker-mute half of that keypress.
+    sleep 0.8
+    mic_mute_stamp="${XDG_RUNTIME_DIR:-/tmp}/mic-mute-toggle.stamp"
+    if [ -r "$mic_mute_stamp" ]; then
+      now="$(date +%s%3N)"
+      last="$(cat "$mic_mute_stamp" 2>/dev/null || true)"
+      if [[ "$last" =~ ^[0-9]+$ ]] && [ $((now - last)) -lt 750 ]; then
+        exit 0
+      fi
+    fi
+    wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle >/dev/null
+    ;;
+esac
+
+status="$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null || true)"
+if printf '%s\n' "$status" | grep -q MUTED; then
+  printf '1\n' > "$speaker_mute_state" 2>/dev/null || true
+else
+  printf '0\n' > "$speaker_mute_state" 2>/dev/null || true
+fi
+volume="$(printf '%s\n' "$status" | awk '{ printf "%d", ($2 * 100) + 0.5 }')"
+volume="${volume:-0}"
+
+if printf '%s\n' "$status" | grep -q MUTED; then
+  body="Muted"
+  hint=0
+  icon="audio-volume-muted-symbolic"
+else
+  body="$volume%"
+  hint="$volume"
+  if [ "$volume" -ge 67 ]; then
+    icon="audio-volume-high-symbolic"
+  elif [ "$volume" -ge 34 ]; then
+    icon="audio-volume-medium-symbolic"
+  elif [ "$volume" -gt 0 ]; then
+    icon="audio-volume-low-symbolic"
+  else
+    icon="audio-volume-muted-symbolic"
+  fi
+fi
+
+dunstify \
+  --app-name=volume \
+  --replace=2596 \
+  --urgency=low \
+  --timeout=1000 \
+  --hints=int:value:"$hint" \
+  --icon="$icon" \
+  "Volume" "$body"

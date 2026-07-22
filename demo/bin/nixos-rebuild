@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'demo adapter: nixos-rebuild %s\n' "$*"
+printf 'evaluating the selected host configuration...\n'
+/root/.nix-profile/bin/nix eval \
+  --extra-experimental-features 'nix-command flakes' \
+  --impure \
+  --raw \
+  "$RENIX_FLAKE_DIR#nixosConfigurations.demo.config.system.build.toplevel.drvPath" \
+  >/dev/null
+
+printf 'building the demo user environment from the selected configuration...\n'
+RENIX_FLAKE_DIR="$RENIX_FLAKE_DIR" /root/.nix-profile/bin/nix build \
+  --extra-experimental-features 'nix-command flakes' \
+  --impure \
+  --file "$RENIX_SEED/demo/demo-tools.nix" \
+  --out-link /workspace/.renix-demo-activated
+
+printf 'activating practical CLI tools, Fish, Herdr, Pi, and the configured Neovim...\n'
+for command in fish fd fping herdr pi nvim yazi; do
+  test -x "/workspace/.renix-demo-activated/bin/$command" || {
+    printf 'demo activation did not provide %s\n' "$command" >&2
+    exit 1
+  }
+done
+printf 'demo adapter: real container environment activation completed\n'

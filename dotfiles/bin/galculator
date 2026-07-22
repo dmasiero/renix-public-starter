@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export GTK_THEME=GalculatorPaper
+
+for candidate in \
+  "$HOME/.nix-profile/bin/galculator" \
+  "/etc/profiles/per-user/${USER}/bin/galculator" \
+  /run/current-system/sw/bin/galculator; do
+  if [ -x "$candidate" ] && [ "$candidate" != "$0" ]; then
+    exec "$candidate" "$@"
+  fi
+done
+
+echo "galculator binary not found on PATH" >&2
+exit 127

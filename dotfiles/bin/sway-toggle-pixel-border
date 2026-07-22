@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+on_width=1
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}"
+state_file="$state_dir/sway-pixel-border"
+mkdir -p "$state_dir"
+
+if [[ "${1:-}" == "on" ]]; then
+  width="$on_width"
+elif [[ "${1:-}" == "off" ]]; then
+  width=0
+elif [[ -f "$state_file" ]]; then
+  if [[ "$(<"$state_file")" == "0" ]]; then
+    width="$on_width"
+  else
+    width=0
+  fi
+else
+  # Sway starts with borders on, so first toggle should turn them off.
+  width=0
+fi
+
+printf '%s\n' "$width" > "$state_file"
+
+swaymsg default_border pixel "$width" >/dev/null
+swaymsg default_floating_border pixel "$width" >/dev/null
+swaymsg '[all] border pixel '"$width" >/dev/null
+
+if [[ "$width" == "0" ]]; then
+  notify-send "Sway borders" "Pixel borders off" 2>/dev/null || true
+else
+  notify-send "Sway borders" "Pixel borders on (${width}px)" 2>/dev/null || true
+fi

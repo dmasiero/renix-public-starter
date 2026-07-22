@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+pkill -f '[w]l-paste --type text --watch cliphist store' 2>/dev/null || true
+pkill -f '[w]l-paste --type image --watch cliphist store' 2>/dev/null || true
+
+wl-paste --type text --watch cliphist store &
+exec wl-paste --type image --watch cliphist store

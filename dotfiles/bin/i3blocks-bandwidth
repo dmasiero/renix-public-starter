@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+direction="${1:-rx}"
+iface="$(ip route show default 2>/dev/null | awk 'NR == 1 { print $5 }')"
+if [ -z "$iface" ]; then
+  echo "000.0Kbps"
+  exit 0
+fi
+
+case "$direction" in
+  rx|tx) ;;
+  *)
+    echo "usage: $0 {rx|tx}" >&2
+    exit 2
+    ;;
+esac
+
+stats_file="/sys/class/net/$iface/statistics/${direction}_bytes"
+if [ ! -r "$stats_file" ]; then
+  echo "000.0Kbps"
+  exit 0
+fi
+
+state_dir="${XDG_RUNTIME_DIR:-/tmp}/i3blocks"
+state_file="$state_dir/bandwidth-$iface-$direction"
+mkdir -p "$state_dir"
+
+now="$(date +%s)"
+current="$(cat "$stats_file")"
+
+if [ -r "$state_file" ]; then
+  read -r previous_time previous_bytes < "$state_file"
+else
+  previous_time="$now"
+  previous_bytes="$current"
+fi
+
+printf '%s %s\n' "$now" "$current" > "$state_file"
+
+delta_time=$(( now - previous_time ))
+if [ "$delta_time" -le 0 ]; then
+  delta_time=1
+fi
+
+delta_bytes=$(( current - previous_bytes ))
+if [ "$delta_bytes" -lt 0 ]; then
+  delta_bytes=0
+fi
+
+rate=$(( delta_bytes / delta_time ))
+awk -v rate="$rate" 'BEGIN {
+  split("Kbps Mbps Gbps Tbps", units, " ")
+  value = (rate * 8) / 1000
+  unit = 1
+  while (value >= 1000 && unit < length(units)) {
+    value /= 1000
+    unit++
+  }
+  printf "%05.1f%-4s\n", value, units[unit]
+}'

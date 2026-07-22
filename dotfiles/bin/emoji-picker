@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+emoji="$(bemoji --echo --noline)" || exit 0
+[ -n "$emoji" ] || exit 0
+
+if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy >/dev/null 2>&1; then
+  printf %s "$emoji" | wl-copy --type text/plain
+  sleep 0.1
+  if command -v wtype >/dev/null 2>&1; then
+    exec wtype -M ctrl -P v -p v -m ctrl
+  fi
+fi
+
+if [ -n "${DISPLAY:-}" ] && command -v xclip >/dev/null 2>&1; then
+  printf %s "$emoji" | xclip -selection clipboard -in
+  sleep 0.1
+  if command -v xdotool >/dev/null 2>&1; then
+    exec xdotool key --clearmodifiers ctrl+v
+  fi
+fi
+
+printf 'emoji-picker: no supported clipboard/paste tools found\n' >&2
+exit 1

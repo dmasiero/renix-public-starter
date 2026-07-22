@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+set_mic_mute_led() {
+  local muted="$1"
+  local led=/sys/class/leds/platform::micmute/brightness
+  if [ -w "$led" ]; then
+    printf '%s\n' "$muted" > "$led" || true
+  fi
+}
+
+mic_mute_stamp="${XDG_RUNTIME_DIR:-/tmp}/mic-mute-toggle.stamp"
+mic_mute_state="${XDG_RUNTIME_DIR:-/tmp}/mic-mute-toggle.state"
+now="$(date +%s%3N)"
+last="$(cat "$mic_mute_stamp" 2>/dev/null || true)"
+if [[ "$last" =~ ^[0-9]+$ ]] && [ $((now - last)) -lt 750 ]; then
+  exit 0
+fi
+printf '%s\n' "$now" > "$mic_mute_stamp" 2>/dev/null || true
+
+source_mute="$(pactl get-source-mute @DEFAULT_SOURCE@ 2>/dev/null || true)"
+if [ -z "$source_mute" ]; then
+  dunstify --app-name=audio --replace=2595 --urgency=critical --timeout=2000 \
+    "Microphone" "No default source found" || true
+  exit 1
+fi
+
+if printf '%s\n' "$source_mute" | grep -q 'yes'; then
+  muted=0
+  text="Unmuted"
+else
+  muted=1
+  text="Muted"
+fi
+
+pactl set-source-mute @DEFAULT_SOURCE@ "$muted" >/dev/null || true
+
+printf '%s\n' "$muted" > "$mic_mute_state" 2>/dev/null || true
+set_mic_mute_led "$muted"
+
+if command -v dunstify >/dev/null 2>&1; then
+  dunstify \
+    --app-name=audio \
+    --replace=2595 \
+    --urgency=low \
+    --timeout=1000 \
+    --icon=microphone-sensitivity-muted-symbolic \
+    "Microphone" "$text" || true
+fi

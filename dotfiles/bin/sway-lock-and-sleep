@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+log() {
+  logger -t sway-lock-and-sleep -- "$*" 2>/dev/null || true
+}
+
+script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+dotfiles_dir="$(cd "$(dirname "$script_path")/.." && pwd)"
+export DOTFILES="${DOTFILES:-$dotfiles_dir}"
+
+# If the session is already locked, do not start a second swaylock wrapper.
+# A failed second lock was running cleanup and powering displays back on while
+# the original swaylock was still active.
+if pgrep -xu "$USER" swaylock >/dev/null 2>&1; then
+  log "swaylock already active; refusing duplicate lock request"
+  exit 0
+fi
+
+swaylock -c 000000 &
+lock_pid=$!
+monitor_pid=""
+log "swaylock started pid=$lock_pid"
+
+# Give swaylock enough time to fail if the compositor is already locked/racing.
+# Do not install cleanup until we know this wrapper owns the lock, otherwise a
+# failed duplicate invocation can turn displays on for the real lock.
+sleep 0.5
+if ! kill -0 "$lock_pid" 2>/dev/null; then
+  wait "$lock_pid" 2>/dev/null || true
+  log "swaylock exited before monitor start; no display cleanup"
+  exit 0
+fi
+
+monitor_locked_outputs() {
+  local idle_timeout=1
+  local sleep_pid=""
+
+  trap '[[ -n "$sleep_pid" ]] && kill "$sleep_pid" 2>/dev/null || true; wait "$sleep_pid" 2>/dev/null || true; exit 0' INT TERM
+
+  # Use swayidle so the resume hook powers displays back on as soon as input is
+  # detected. First pass is near-immediate for hotcorner/explicit lock; later
+  # passes use 10 seconds of inactivity.
+  while kill -0 "$lock_pid" 2>/dev/null; do
+    "$DOTFILES/bin/sway-display-sleep" "$idle_timeout" &
+    sleep_pid=$!
+    log "display sleep helper started pid=$sleep_pid timeout=${idle_timeout}s"
+
+    while kill -0 "$sleep_pid" 2>/dev/null && kill -0 "$lock_pid" 2>/dev/null; do
+      sleep 0.2
+    done
+
+    if kill -0 "$sleep_pid" 2>/dev/null; then
+      kill "$sleep_pid" 2>/dev/null || true
+      wait "$sleep_pid" 2>/dev/null || true
+      break
+    fi
+
+    wait "$sleep_pid" 2>/dev/null || true
+    log "display resumed while locked; next sleep timeout=10s"
+    sleep_pid=""
+    idle_timeout=10
+  done
+}
+
+cleanup() {
+  if [[ -n "$monitor_pid" ]]; then
+    kill "$monitor_pid" 2>/dev/null || true
+    wait "$monitor_pid" 2>/dev/null || true
+  fi
+  swaymsg "output * power on" >/dev/null 2>&1 || true
+  if [[ -x "$DOTFILES/bin/waycorner-start" ]]; then
+    "$DOTFILES/bin/waycorner-start" >/dev/null 2>&1 &
+  fi
+  log "swaylock exited; displays powered on; waycorner restarted"
+}
+trap cleanup EXIT
+trap 'cleanup; exit 0' INT TERM
+
+monitor_locked_outputs &
+monitor_pid=$!
+
+wait "$lock_pid"

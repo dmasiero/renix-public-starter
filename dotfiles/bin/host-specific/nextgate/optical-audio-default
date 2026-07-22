@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+sink="alsa_output.usb-Generic_USB_Audio-00.HiFi__SPDIF__sink"
+card="alsa_card.usb-Generic_USB_Audio-00"
+profile="HiFi"
+
+pactl set-card-profile "$card" "$profile" >/dev/null 2>&1 || true
+
+for _ in $(seq 1 20); do
+  if pactl list short sinks 2>/dev/null | awk '{print $2}' | grep -qx "$sink"; then
+    break
+  fi
+  sleep 0.5
+done
+
+if pactl list short sinks 2>/dev/null | awk '{print $2}' | grep -qx "$sink"; then
+  pactl set-default-sink "$sink" || true
+  pactl set-sink-mute "$sink" 0 || true
+  pactl set-sink-volume "$sink" 100% || true
+  pactl list short sink-inputs 2>/dev/null | awk '{print $1}' | while read -r input; do
+    [ -n "$input" ] || continue
+    pactl move-sink-input "$input" "$sink" >/dev/null 2>&1 || true
+  done
+else
+  echo "Optical audio sink not available: $sink" >&2
+  exit 1
+fi

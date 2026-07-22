@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export DISPLAY="${DISPLAY:-:0}"
+export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+
+night_shift_outputs() {
+  xrandr --query | awk '/ connected/ { print $1 }'
+}
+
+wayland_display_ready() {
+  [ -n "${XDG_RUNTIME_DIR:-}" ] || return 1
+
+  if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] || [ -S "$WAYLAND_DISPLAY" ]
+    return
+  fi
+
+  for socket in "$XDG_RUNTIME_DIR"/wayland-*; do
+    [ -S "$socket" ] || continue
+    export WAYLAND_DISPLAY="${socket##*/}"
+    return 0
+  done
+
+  return 1
+}
+
+run_wayland_loop() {
+  while true; do
+    until wayland_display_ready; do
+      sleep 2
+    done
+
+    # wlsunset uses the wlroots gamma-control protocol, which works under Sway.
+    # Manual times match the old xrandr script: warm from 7pm through 6am.
+    wlsunset -S 06:00 -s 19:00 -t 4000 -T 6500 -g 0.9 || true
+    sleep 2
+  done
+}
+
+apply_night_shift() {
+  night_shift_outputs | while read -r output; do
+    [ -n "$output" ] || continue
+    xrandr --output "$output" --gamma 1.0:0.82:0.62 --brightness 0.90 >/dev/null 2>&1 || true
+  done
+}
+
+clear_night_shift() {
+  night_shift_outputs | while read -r output; do
+    [ -n "$output" ] || continue
+    xrandr --output "$output" --gamma 1.0:1.0:1.0 --brightness 1.0 >/dev/null 2>&1 || true
+  done
+}
+
+refresh() {
+  hour="$(date +%H)"
+
+  # Active from 7pm through 6am the next day.
+  if [ "$hour" -ge 19 ] || [ "$hour" -lt 6 ]; then
+    apply_night_shift
+  else
+    clear_night_shift
+  fi
+}
+
+if [ "${1:-}" = "--loop" ]; then
+  if [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = "wayland" ] || [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+    run_wayland_loop
+  fi
+
+  while true; do
+    refresh
+    sleep 300
+  done
+else
+  refresh
+fi

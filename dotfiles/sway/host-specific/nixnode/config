@@ -1,0 +1,19 @@
+set $mod Mod4
+set $sway_font pango:DejaVu Sans Mono, Font Awesome 7 Free Solid, Symbols Nerd Font Mono 9
+set $sway_bar_font pango:DejaVu Sans Mono, Font Awesome 7 Free Solid, Symbols Nerd Font Mono 9
+set $terminal_cmd kitty
+set $DOTFILES ~/dotfiles
+
+include $DOTFILES/sway/common/prelude.conf
+include $DOTFILES/sway/common/session-env.conf
+include $DOTFILES/sway/common/startup.conf
+include $DOTFILES/sway/host-specific/nixnode/startup.conf
+include $DOTFILES/sway/host-specific/nixnode/input.conf
+include $DOTFILES/sway/common/core-bindings.conf
+include $DOTFILES/sway/host-specific/nixnode/hardware-bindings.conf
+include $DOTFILES/sway/common/app-bindings.conf
+include $DOTFILES/sway/common/window-rules.conf
+include $DOTFILES/sway/host-specific/nixnode/window-rules.conf
+include $DOTFILES/sway/common/system-mode.conf
+include $DOTFILES/sway/host-specific/nixnode/display-mode.conf
+include $DOTFILES/sway/common/bar.conf

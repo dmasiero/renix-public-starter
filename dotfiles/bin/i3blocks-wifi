@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+wifi_blocked=0
+if command -v rfkill >/dev/null 2>&1; then
+  if rfkill list wifi 2>/dev/null | awk -F: '/blocked:/ && $2 ~ /yes/ { found=1 } END { exit found ? 0 : 1 }'; then
+    wifi_blocked=1
+  fi
+fi
+
+first_wifi=""
+connected_iface=""
+connected_output=""
+
+for candidate_path in /sys/class/net/*; do
+  [ -e "$candidate_path" ] || continue
+  candidate="$(basename "$candidate_path")"
+  if output="$(iwctl station "$candidate" show 2>/dev/null | sed -r 's/\x1B\[[0-9;]*[A-Za-z]//g')"; then
+    [ -z "$first_wifi" ] && first_wifi="$candidate"
+    state="$(printf '%s\n' "$output" | awk '/^[[:space:]]+State[[:space:]]+/ { print $NF; exit }')"
+    if [ "$state" = "connected" ]; then
+      connected_iface="$candidate"
+      connected_output="$output"
+      break
+    fi
+  fi
+done
+
+if [ "$wifi_blocked" -eq 1 ]; then
+  printf '󰤭\n'
+  exit 0
+fi
+
+if [ -z "$first_wifi" ]; then
+  printf '󰤮<span size="3200"> </span>n/a\n'
+  exit 0
+fi
+
+if [ -z "$connected_iface" ]; then
+  printf '󰤮<span size="3200"> </span>down\n'
+  exit 0
+fi
+
+rssi="$(printf '%s\n' "$connected_output" | awk '
+  /^[[:space:]]+AverageRSSI[[:space:]]+/ { print $(NF-1); exit }
+  /^[[:space:]]+RSSI[[:space:]]+/ { print $(NF-1); exit }
+')"
+
+if [ -n "$rssi" ] && [ "$rssi" -le 0 ] 2>/dev/null; then
+  if [ "$rssi" -ge -50 ]; then
+    signal=100
+  else
+    signal=$(( 2 * (100 + rssi) ))
+  fi
+  [ "$signal" -lt 0 ] && signal=0
+  [ "$signal" -gt 100 ] && signal=100
+  printf '\uf1eb<span size="3200"> </span>%s%%\n' "$signal"
+else
+  printf '\uf1eb<span size="3200"> </span>up\n'
+fi

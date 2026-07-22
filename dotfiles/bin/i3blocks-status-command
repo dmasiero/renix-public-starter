@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export DOTFILES="${DOTFILES:-$HOME/dotfiles}"
+host="$(hostname -s)"
+cfg="$DOTFILES/i3blocks/config"
+
+if [ -r "$DOTFILES/i3blocks/host-specific/$host/config" ]; then
+  cfg="$DOTFILES/i3blocks/host-specific/$host/config"
+fi
+
+exec i3blocks -c "$cfg"

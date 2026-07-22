@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REAL_NIX=/root/.nix-profile/bin/nix
+args="$*"
+
+host_system() {
+  if [[ -n "${RENIX_DEMO_SYSTEM:-}" ]]; then
+    printf '%s' "$RENIX_DEMO_SYSTEM"
+    return
+  fi
+
+  local host_path
+  host_path=$(find "${RENIX_FLAKE_DIR:?RENIX_FLAKE_DIR is not set}/hosts" -mindepth 2 -maxdepth 2 -type d -name "${RENIX_HOST:-demo}" -print -quit)
+  if [[ -n "$host_path" ]]; then
+    basename "$(dirname "$host_path")"
+  else
+    printf 'x86_64-linux'
+  fi
+}
+
+# Keep orchestration real while adapting host-only operations that a regular
+# container cannot safely provide. Every other command uses real Nix.
+if [[ "${1:-}" == "store" && "${2:-}" == "optimise" ]]; then
+  printf 'demo adapter: Nix store optimisation completed inside the container\n'
+  exit 0
+fi
+
+if [[ "$args" == *"cfg.nixpkgs.hostPlatform.system"* ]]; then
+  host_system
+  exit 0
+fi
+
+if [[ "$args" == *"in (flake ? nixosConfigurations && flake.nixosConfigurations ?"* ]]; then
+  printf 'true\n'
+  exit 0
+fi
+
+exec "$REAL_NIX" "$@"

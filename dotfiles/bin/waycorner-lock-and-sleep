@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+dotfiles_dir="$(cd "$(dirname "$script_path")/.." && pwd)"
+
+# waycorner waits for enter_command to exit. Start the long-running lock helper
+# in the background so waycorner remains responsive after the corner fires.
+mkdir -p "$HOME/.cache"
+setsid "$dotfiles_dir/bin/sway-lock-and-sleep" >>"$HOME/.cache/waycorner-lock-and-sleep.log" 2>&1 </dev/null &

@@ -1,0 +1,11 @@
+[mgr]
+prepend_keymap = [
+  { on = [ "g", "d" ], run = "cd ~/downloads", desc = "Go ~/downloads" },
+  { on = [ "g", "D" ], run = "cd ~/dev", desc = "Go ~/dev" },
+  { on = [ "g", "v" ], run = "cd ~/vault", desc = "Go ~/vault" },
+  { on = [ "g", "S" ], run = "cd ~/screenshots", desc = "Go ~/screenshots" },
+  { on = [ "<A-d>" ], run = "shell 'dragon-drop --and-exit --all-compact \"$@\"' --orphan --confirm", desc = "Drag selected files with dragon-drop" },
+  { on = [ "C" ], run = "plugin ouch", desc = "Compress selected files with ouch" },
+  { on = [ "T" ], run = "shell '$DOTFILES/bin/transfer \"$@\"'", desc = "Transfer selected files" },
+  { on = [ "Y" ], run = "shell 'wl-copy --type \"$(file --mime-type -b \"$1\")\" < \"$1\"' --confirm", desc = "Copy image to clipboard" },
+]

@@ -1,0 +1,17 @@
+services:
+  renix:
+    build: .
+    stdin_open: true
+    tty: true
+    environment:
+      RENIX_HOST: ${RENIX_HOST:-demo}
+      RENIX_DEMO_SYSTEM: ${RENIX_DEMO_SYSTEM:-}
+      RENIX_REPO: ${RENIX_REPO:-}
+    volumes:
+      # Docker-managed volumes persist source edits and runtime Nix builds.
+      - renix-workspace:/workspace
+      - renix-nix:/nix
+
+volumes:
+  renix-workspace:
+  renix-nix:

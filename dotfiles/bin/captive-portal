@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Probe a plain HTTP URL that is normally not redirected. Captive portals can
+# only hijack HTTP reliably; HTTPS usually just fails until the portal is done.
+default_probe_url="http://connectivitycheck.gstatic.com/generate_204"
+probe_url="${1:-$default_probe_url}"
+open=1
+
+if [[ "${1:-}" == "--print" ]]; then
+  open=0
+  probe_url="${2:-$default_probe_url}"
+fi
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+
+# Include headers and avoid following redirects so we can open either a real
+# Location: redirect or splash pages that contain only an <a href=...>.
+if ! curl -sS --max-time 15 --connect-timeout 5 --location-trusted --max-redirs 0 \
+  --dump-header "$tmp.headers" --output "$tmp.body" "$probe_url" >/dev/null 2>"$tmp.err"; then
+  # curl returns non-zero for --max-redirs 0 when a redirect is present; that's OK.
+  if ! grep -qi '^location:' "$tmp.headers" 2>/dev/null; then
+    cat "$tmp.err" >&2
+    exit 1
+  fi
+fi
+cat "$tmp.headers" "$tmp.body" >"$tmp"
+
+url="$(${PYTHON:-python3} - "$tmp" "$probe_url" <<'PY'
+import html
+import re
+import sys
+from urllib.parse import urljoin
+
+path, probe_url = sys.argv[1], sys.argv[2]
+data = open(path, 'rb').read().decode('utf-8', 'replace')
+
+# Header redirect first.
+for line in data.splitlines():
+    if line.lower().startswith('location:'):
+        print(urljoin(probe_url, line.split(':', 1)[1].strip()))
+        raise SystemExit
+
+# Then common splash page links.
+m = re.search(r'''href\s*=\s*(["'])(.*?)\1''', data, re.I | re.S)
+if m:
+    print(urljoin(probe_url, html.unescape(m.group(2).strip())))
+    raise SystemExit
+
+# Meta refresh fallback.
+m = re.search(r'''http-equiv\s*=\s*(["'])refresh\1[^>]*content\s*=\s*(["'])(.*?)\2''', data, re.I | re.S)
+if m:
+    content = html.unescape(m.group(3))
+    u = re.search(r'''url\s*=\s*([^;]+)''', content, re.I)
+    if u:
+        print(urljoin(probe_url, u.group(1).strip(' "\'')))
+        raise SystemExit
+
+# Unquoted href fallback.
+m = re.search(r'''href\s*=\s*([^\s>]+)''', data, re.I)
+if m:
+    print(urljoin(probe_url, html.unescape(m.group(1).strip('"\''))))
+PY
+)"
+
+if [[ -z "$url" ]]; then
+  if grep -qE '^HTTP/[0-9.]+ (204|200) ' "$tmp.headers" 2>/dev/null && [[ ! -s "$tmp.body" ]]; then
+    echo "No captive portal detected."
+    exit 0
+  fi
+  if grep -qi '^success' "$tmp.body" 2>/dev/null; then
+    echo "No captive portal detected."
+    exit 0
+  fi
+  echo "No captive portal URL found; try opening http://neverssl.com/ manually." >&2
+  exit 1
+fi
+
+echo "$url"
+
+if (( open )); then
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send "Captive portal" "Opening sign-in page"
+  fi
+  exec xdg-open "$url"
+fi
